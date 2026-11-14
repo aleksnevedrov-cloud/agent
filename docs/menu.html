@@ -43,7 +43,7 @@
   <h1>Шпаргалка: навыки и команды</h1>
   <p>Нажмите на команду, чтобы скопировать. В сессии Claude Code та же справка открывается по <strong>/menu</strong>.</p>
 </header>
-<nav><a href="#g0">Проверка кода (перед каждым коммитом и PR)</a><a href="#g1">Ревью с Claude</a><a href="#g2">Запуск и сборка</a><a href="#g3">Evals и нагрузка</a><a href="#g4">Сайт rf-dveri.ru и SEO</a><a href="#g5">Браузер и компьютер пользователя</a><a href="#g6">Документы и отчёты</a><a href="#g7">Данные и аналитика</a><a href="#g8">Дизайн и интерфейс</a><a href="#g9">Claude Code: настройка и расширение</a></nav>
+<nav><a href="#g0">Проверка кода (перед каждым коммитом и PR)</a><a href="#g1">Ревью с Claude</a><a href="#g2">Запуск и сборка</a><a href="#g3">Evals и нагрузка</a><a href="#g4">Сайт rf-dveri.ru: админка и свои навыки</a><a href="#g5">SEO: плагин Claude SEO</a><a href="#g6">GEO: видимость в ИИ-поиске</a><a href="#g7">Schema и статьи: плагин Claude Blog</a><a href="#g8">Как открыть сессию с навыками на iMac</a><a href="#g9">Браузер и компьютер пользователя</a><a href="#g10">Документы и отчёты</a><a href="#g11">Данные и аналитика</a><a href="#g12">Дизайн и интерфейс</a><a href="#g13">Claude Code: настройка и расширение</a></nav>
 <main>
 <section id="g0">
 <h2>Проверка кода (перед каждым коммитом и PR)</h2>
@@ -91,15 +91,73 @@
 
 </section>
 <section id="g4">
-<h2>Сайт rf-dveri.ru и SEO</h2>
+<h2>Сайт rf-dveri.ru: админка и свои навыки</h2>
 <table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
-<tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:rf-dveri-admin" title="Скопировать"><code>/anthropic-skills:rf-dveri-admin</code><span class="copy">Копировать</span></button></td><td>Работа в админке UMI на rf-dveri.ru: лист замера, заголовки и метатеги, тег-блоки, тексты. Читать перед любой правкой сайта</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:rf-dveri-admin проверить заголовки раздела «Входные двери»" title="Скопировать"><code>/anthropic-skills:rf-dveri-admin проверить заголовки раздела «Входные двери»</code><span class="copy">Копировать</span></button></td></tr>
-<tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:seo-audit" title="Скопировать"><code>/anthropic-skills:seo-audit</code><span class="copy">Копировать</span></button></td><td>Технический и on-page SEO-аудит: индексация, метатеги, перелинковка, микроразметка, скорость</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:seo-audit https://rf-dveri.ru/catalog/" title="Скопировать"><code>/anthropic-skills:seo-audit https://rf-dveri.ru/catalog/</code><span class="copy">Копировать</span></button></td></tr>
-<tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:programmatic-seo" title="Скопировать"><code>/anthropic-skills:programmatic-seo</code><span class="copy">Копировать</span></button></td><td>Шаблонные посадочные страницы: город + услуга, категории, сравнения, каталоги</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:programmatic-seo страницы «двери в &lt;город&gt;»" title="Скопировать"><code>/anthropic-skills:programmatic-seo страницы «двери в &lt;город&gt;»</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:rf-dveri-admin" title="Скопировать"><code>/anthropic-skills:rf-dveri-admin</code><span class="copy">Копировать</span></button></td><td>Работа в админке UMI на rf-dveri.ru: лист замера, заголовки и метатеги, тег-блоки, тексты. Читать перед любой правкой сайта. В сессии на iMac называется <code>/rf-dveri-admin</code></td><td><button class="cmd" type="button" data-cmd="/rf-dveri-admin проверить заголовки раздела «Входные двери»" title="Скопировать"><code>/rf-dveri-admin проверить заголовки раздела «Входные двери»</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/seo-audit" title="Скопировать"><code>/seo-audit</code><span class="copy">Копировать</span></button></td><td>Свой навык (19.08): технический и on-page SEO-аудит. Имя совпадает с <code>/claude-seo:seo-audit</code> из плагина, в меню <code>/</code> выбирайте нужную строку</td><td><button class="cmd" type="button" data-cmd="/seo-audit https://rf-dveri.ru/catalog/" title="Скопировать"><code>/seo-audit https://rf-dveri.ru/catalog/</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/programmatic-seo" title="Скопировать"><code>/programmatic-seo</code><span class="copy">Копировать</span></button></td><td>Свой навык (19.08): аудит ветки каталога и шаблонные посадочные: город + услуга, категории, сравнения</td><td><button class="cmd" type="button" data-cmd="/programmatic-seo аудит ветки «Входные двери» по шаблону" title="Скопировать"><code>/programmatic-seo аудит ветки «Входные двери» по шаблону</code><span class="copy">Копировать</span></button></td></tr>
+</tbody></table>
+<p class="note">Навыки SEO, GEO, Blog и Schema ниже доступны в сессии приложения Claude на iMac с папкой <code>rf-dveri</code> (вкладка Code, окружение «This computer»). В облачной сессии <code>amo</code> их нет. Префикс <code>claude-seo:</code> и <code>claude-blog:</code> набирать не обязательно: достаточно <code>/seo-audit</code>, <code>/blog-write</code> и выбрать строку из списка.</p>
+</section>
+<section id="g5">
+<h2>SEO: плагин Claude SEO</h2>
+<table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-seo:seo" title="Скопировать"><code>/claude-seo:seo</code><span class="copy">Копировать</span></button></td><td>Вход в SEO-набор: подсказывает, какой из навыков ниже нужен</td><td><button class="cmd" type="button" data-cmd="/claude-seo:seo" title="Скопировать"><code>/claude-seo:seo</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-audit" title="Скопировать"><code>/claude-seo:seo-audit</code><span class="copy">Копировать</span></button></td><td>Полный SEO-аудит сайта</td><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-audit https://rf-dveri.ru" title="Скопировать"><code>/claude-seo:seo-audit https://rf-dveri.ru</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-page" title="Скопировать"><code>/claude-seo:seo-page</code><span class="copy">Копировать</span></button></td><td>Аудит одной страницы: заголовки, метатеги, контент, ссылки</td><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-page https://rf-dveri.ru/catalog/vhodnye-dveri/" title="Скопировать"><code>/claude-seo:seo-page https://rf-dveri.ru/catalog/vhodnye-dveri/</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-technical" title="Скопировать"><code>/claude-seo:seo-technical</code><span class="copy">Копировать</span></button></td><td>Технический аудит: индексация, robots, sitemap, скорость, редиректы</td><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-technical https://rf-dveri.ru" title="Скопировать"><code>/claude-seo:seo-technical https://rf-dveri.ru</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-schema" title="Скопировать"><code>/claude-seo:seo-schema</code><span class="copy">Копировать</span></button></td><td>Микроразметка Schema.org для страницы</td><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-schema https://rf-dveri.ru/catalog/" title="Скопировать"><code>/claude-seo:seo-schema https://rf-dveri.ru/catalog/</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-geo" title="Скопировать"><code>/claude-seo:seo-geo</code><span class="copy">Копировать</span></button></td><td>Оптимизация под ИИ-поиск внутри SEO-плагина</td><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-geo https://rf-dveri.ru" title="Скопировать"><code>/claude-seo:seo-geo https://rf-dveri.ru</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-google" title="Скопировать"><code>/claude-seo:seo-google</code><span class="copy">Копировать</span></button></td><td>Данные Google Search Console и рекомендации по ним</td><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-google" title="Скопировать"><code>/claude-seo:seo-google</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-programmatic" title="Скопировать"><code>/claude-seo:seo-programmatic</code><span class="copy">Копировать</span></button></td><td>Шаблонные страницы силами плагина</td><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-programmatic двери по городам" title="Скопировать"><code>/claude-seo:seo-programmatic двери по городам</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-plan" title="Скопировать"><code>/claude-seo:seo-plan</code><span class="copy">Копировать</span></button></td><td>План SEO-работ с приоритетами</td><td><button class="cmd" type="button" data-cmd="/claude-seo:seo-plan rf-dveri.ru на квартал" title="Скопировать"><code>/claude-seo:seo-plan rf-dveri.ru на квартал</code><span class="copy">Копировать</span></button></td></tr>
 </tbody></table>
 
 </section>
-<section id="g5">
+<section id="g6">
+<h2>GEO: видимость в ИИ-поиске</h2>
+<table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
+<tr><td><button class="cmd" type="button" data-cmd="/geo" title="Скопировать"><code>/geo</code><span class="copy">Копировать</span></button></td><td>Вход в GEO-набор; быстрый прогон — слово quick после команды (раньше <code>/geo quick</code>)</td><td><button class="cmd" type="button" data-cmd="/geo quick" title="Скопировать"><code>/geo quick</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/geo-audit" title="Скопировать"><code>/geo-audit</code><span class="copy">Копировать</span></button></td><td>GEO-аудит сайта: как его видят и цитируют ИИ-ответы (раньше <code>/geo audit &lt;url&gt;</code>)</td><td><button class="cmd" type="button" data-cmd="/geo-audit https://rf-dveri.ru" title="Скопировать"><code>/geo-audit https://rf-dveri.ru</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/geo-citability" title="Скопировать"><code>/geo-citability</code><span class="copy">Копировать</span></button></td><td>Цитируемость текстов для ИИ: структура, факты, формулировки</td><td><button class="cmd" type="button" data-cmd="/geo-citability https://rf-dveri.ru/articles/" title="Скопировать"><code>/geo-citability https://rf-dveri.ru/articles/</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/geo-llmstxt" title="Скопировать"><code>/geo-llmstxt</code><span class="copy">Копировать</span></button></td><td>Файл <code>llms.txt</code> для сайта</td><td><button class="cmd" type="button" data-cmd="/geo-llmstxt https://rf-dveri.ru" title="Скопировать"><code>/geo-llmstxt https://rf-dveri.ru</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/geo-crawlers" title="Скопировать"><code>/geo-crawlers</code><span class="copy">Копировать</span></button></td><td>Доступ ИИ-ботов: robots.txt, заголовки, блокировки</td><td><button class="cmd" type="button" data-cmd="/geo-crawlers https://rf-dveri.ru" title="Скопировать"><code>/geo-crawlers https://rf-dveri.ru</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/geo-technical" title="Скопировать"><code>/geo-technical</code><span class="copy">Копировать</span></button></td><td>Технические требования GEO</td><td><button class="cmd" type="button" data-cmd="/geo-technical https://rf-dveri.ru" title="Скопировать"><code>/geo-technical https://rf-dveri.ru</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/geo-schema" title="Скопировать"><code>/geo-schema</code><span class="copy">Копировать</span></button></td><td>Микроразметка с прицелом на ИИ-ответы</td><td><button class="cmd" type="button" data-cmd="/geo-schema https://rf-dveri.ru/catalog/" title="Скопировать"><code>/geo-schema https://rf-dveri.ru/catalog/</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/geo-content" title="Скопировать"><code>/geo-content</code><span class="copy">Копировать</span></button></td><td>Контент под ИИ-поиск: что дописать и переписать</td><td><button class="cmd" type="button" data-cmd="/geo-content https://rf-dveri.ru/catalog/vhodnye-dveri/" title="Скопировать"><code>/geo-content https://rf-dveri.ru/catalog/vhodnye-dveri/</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/geo-report" title="Скопировать"><code>/geo-report</code><span class="copy">Копировать</span></button></td><td>PDF-отчёт по GEO-аудиту (раньше <code>/geo report-pdf</code>)</td><td><button class="cmd" type="button" data-cmd="/geo-report" title="Скопировать"><code>/geo-report</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/geo-compare" title="Скопировать"><code>/geo-compare</code><span class="copy">Копировать</span></button></td><td>Сравнение двух GEO-аудитов: что изменилось</td><td><button class="cmd" type="button" data-cmd="/geo-compare" title="Скопировать"><code>/geo-compare</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/geo-proposal" title="Скопировать"><code>/geo-proposal</code><span class="copy">Копировать</span></button></td><td>Коммерческое предложение по итогам GEO-аудита</td><td><button class="cmd" type="button" data-cmd="/geo-proposal" title="Скопировать"><code>/geo-proposal</code><span class="copy">Копировать</span></button></td></tr>
+</tbody></table>
+
+</section>
+<section id="g7">
+<h2>Schema и статьи: плагин Claude Blog</h2>
+<table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
+<tr><td><button class="cmd" type="button" data-cmd="/schema" title="Скопировать"><code>/schema</code><span class="copy">Копировать</span></button></td><td>JSON-LD для страницы</td><td><button class="cmd" type="button" data-cmd="/schema https://rf-dveri.ru/catalog/vhodnye-dveri/" title="Скопировать"><code>/schema https://rf-dveri.ru/catalog/vhodnye-dveri/</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-blog:blog" title="Скопировать"><code>/claude-blog:blog</code><span class="copy">Копировать</span></button></td><td>Вход в набор для статей</td><td><button class="cmd" type="button" data-cmd="/claude-blog:blog" title="Скопировать"><code>/claude-blog:blog</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-blog:blog-write" title="Скопировать"><code>/claude-blog:blog-write</code><span class="copy">Копировать</span></button></td><td>Написать статью по теме</td><td><button class="cmd" type="button" data-cmd="/claude-blog:blog-write как выбрать входную дверь в квартиру" title="Скопировать"><code>/claude-blog:blog-write как выбрать входную дверь в квартиру</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-blog:blog-analyze" title="Скопировать"><code>/claude-blog:blog-analyze</code><span class="copy">Копировать</span></button></td><td>Разбор существующей статьи: структура, охват темы, слабые места</td><td><button class="cmd" type="button" data-cmd="/claude-blog:blog-analyze https://rf-dveri.ru/articles/..." title="Скопировать"><code>/claude-blog:blog-analyze https://rf-dveri.ru/articles/...</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-blog:blog-seo-check" title="Скопировать"><code>/claude-blog:blog-seo-check</code><span class="copy">Копировать</span></button></td><td>Проверка статьи на SEO: заголовки, ключи, ссылки, метатеги</td><td><button class="cmd" type="button" data-cmd="/claude-blog:blog-seo-check" title="Скопировать"><code>/claude-blog:blog-seo-check</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-blog:blog-style" title="Скопировать"><code>/claude-blog:blog-style</code><span class="copy">Копировать</span></button></td><td>Профиль голоса и стиля по вашим статьям</td><td><button class="cmd" type="button" data-cmd="/claude-blog:blog-style https://rf-dveri.ru/articles/a https://rf-dveri.ru/articles/b" title="Скопировать"><code>/claude-blog:blog-style https://rf-dveri.ru/articles/a https://rf-dveri.ru/articles/b</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-blog:blog-brand" title="Скопировать"><code>/claude-blog:blog-brand</code><span class="copy">Копировать</span></button></td><td>Профиль бренда для статей: аудитория, тон, запреты</td><td><button class="cmd" type="button" data-cmd="/claude-blog:blog-brand РФ-Двери" title="Скопировать"><code>/claude-blog:blog-brand РФ-Двери</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/claude-blog:blog-repurpose" title="Скопировать"><code>/claude-blog:blog-repurpose</code><span class="copy">Копировать</span></button></td><td>Переупаковать статью: соцсети, рассылка, короткие форматы</td><td><button class="cmd" type="button" data-cmd="/claude-blog:blog-repurpose статья про замки" title="Скопировать"><code>/claude-blog:blog-repurpose статья про замки</code><span class="copy">Копировать</span></button></td></tr>
+</tbody></table>
+
+</section>
+<section id="g8">
+<h2>Как открыть сессию с навыками на iMac</h2>
+
+<p class="note">1. Приложение Claude → вкладка Code (значок <code>&lt;/&gt;</code> вверху слева).</p>
+<p class="note">2. Слева вверху «+ New»: новая сессия.</p>
+<p class="note">3. Под полем ввода выбрать окружение «This computer» (не Remote Control, не облако).</p>
+<p class="note">4. Под полем ввода → папка → «Open folder…» → <code>⌘⇧H</code> → выбрать <code>rf-dveri</code>.</p>
+<p class="note">5. Окно «Choose environment» в центре не трогать: это настройка облачных сессий.</p>
+<p class="note">6. Внизу справа режим «Auto»: Claude не спрашивает разрешение на каждое действие.</p>
+<p class="note">7. В поле ввода набрать <code>/</code>: список навыков фильтруется по набранному.</p>
+<p class="note">Сессии из группы Remote Control (например «ИИ-монтажёр») работают только при запущенном в Терминале Claude Code, иначе «Can't reach your computer».</p>
+</section>
+<section id="g9">
 <h2>Браузер и компьютер пользователя</h2>
 <table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
 <tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:built-in-browser" title="Скопировать"><code>/anthropic-skills:built-in-browser</code><span class="copy">Копировать</span></button></td><td>Встроенный браузер приложения Claude: вкладки, вход на сайты, чтение страниц. Читать перед первым шагом в нём</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:built-in-browser открыть админку rf-dveri.ru" title="Скопировать"><code>/anthropic-skills:built-in-browser открыть админку rf-dveri.ru</code><span class="copy">Копировать</span></button></td></tr>
@@ -108,7 +166,7 @@
 </tbody></table>
 
 </section>
-<section id="g6">
+<section id="g10">
 <h2>Документы и отчёты</h2>
 <table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
 <tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:docs" title="Скопировать"><code>/anthropic-skills:docs</code><span class="copy">Копировать</span></button></td><td>Документ в Artifacts → Docs: отчёт, регламент, инструкция. Экспорт в Word, PDF, Google Docs</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:docs отчёт по фазе 6" title="Скопировать"><code>/anthropic-skills:docs отчёт по фазе 6</code><span class="copy">Копировать</span></button></td></tr>
@@ -122,7 +180,7 @@
 </tbody></table>
 
 </section>
-<section id="g7">
+<section id="g11">
 <h2>Данные и аналитика</h2>
 <table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
 <tr><td><button class="cmd" type="button" data-cmd="/data:analyze" title="Скопировать"><code>/data:analyze</code><span class="copy">Копировать</span></button></td><td>Ответить на вопрос по данным: от одной метрики до полного анализа причин</td><td><button class="cmd" type="button" data-cmd="/data:analyze почему упала конверсия диалогов в октябре" title="Скопировать"><code>/data:analyze почему упала конверсия диалогов в октябре</code><span class="copy">Копировать</span></button></td></tr>
@@ -139,7 +197,7 @@
 </tbody></table>
 
 </section>
-<section id="g8">
+<section id="g12">
 <h2>Дизайн и интерфейс</h2>
 <table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
 <tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:frontend-design" title="Скопировать"><code>/anthropic-skills:frontend-design</code><span class="copy">Копировать</span></button></td><td>Выразительный фронтенд: лендинги, дашборды, типографика, адаптивность, анимация</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:frontend-design страница настроек виджета" title="Скопировать"><code>/anthropic-skills:frontend-design страница настроек виджета</code><span class="copy">Копировать</span></button></td></tr>
@@ -153,7 +211,7 @@
 </tbody></table>
 
 </section>
-<section id="g9">
+<section id="g13">
 <h2>Claude Code: настройка и расширение</h2>
 <table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
 <tr><td><button class="cmd" type="button" data-cmd="/menu" title="Скопировать"><code>/menu</code><span class="copy">Копировать</span></button></td><td>Эта шпаргалка. Аргумент сужает вывод до группы</td><td><button class="cmd" type="button" data-cmd="/menu" title="Скопировать"><code>/menu</code><span class="copy">Копировать</span></button><button class="cmd" type="button" data-cmd="/menu данные" title="Скопировать"><code>/menu данные</code><span class="copy">Копировать</span></button></td></tr>

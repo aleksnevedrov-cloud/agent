@@ -68,11 +68,11 @@ for (const line of body.split('\n')) {
   if (line.trim()) current.notes.push(line.trim());
 }
 
-const sections = groups
-  .filter((g) => g.rows.length)
+const shown = groups.filter((g) => g.rows.length || g.notes.length);
+const sections = shown
   .map((g, i) => {
     const id = `g${i}`;
-    const head = g.header.map((h) => `<th>${escape(h)}</th>`).join('');
+    const head = (g.header ?? []).map((h) => `<th>${escape(h)}</th>`).join('');
     const rows = g.rows
       .map(
         (r) =>
@@ -85,18 +85,14 @@ const sections = groups
       .filter((n) => !n.startsWith('Страница с кнопками'))
       .map((n) => `<p class="note">${renderCell(n, false)}</p>`)
       .join('\n');
-    return `<section id="${id}">
-<h2>${escape(g.title)}</h2>
-<table><thead><tr>${head}</tr></thead><tbody>
-${rows}
-</tbody></table>
-${notes}
-</section>`;
+    const table = g.rows.length
+      ? `<table><thead><tr>${head}</tr></thead><tbody>\n${rows}\n</tbody></table>`
+      : '';
+    return `<section id="${id}">\n<h2>${escape(g.title)}</h2>\n${table}\n${notes}\n</section>`;
   })
   .join('\n');
 
-const nav = groups
-  .filter((g) => g.rows.length)
+const nav = shown
   .map((g, i) => `<a href="#g${i}">${escape(g.title)}</a>`)
   .join('');
 
@@ -174,4 +170,4 @@ document.addEventListener('click', async (e) => {
 `;
 
 writeFileSync(join(root, 'docs/menu.html'), html);
-console.log(`docs/menu.html: ${groups.filter((g) => g.rows.length).length} групп, ${groups.reduce((n, g) => n + g.rows.length, 0)} команд`);
+console.log(`docs/menu.html: ${shown.length} групп, ${groups.reduce((n, g) => n + g.rows.length, 0)} команд`);

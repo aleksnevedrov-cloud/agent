@@ -6,9 +6,9 @@ description: Шпаргалка по навыкам и командам этог
 # /menu — шпаргалка по навыкам и командам
 
 Покажи пользователю таблицы ниже как есть, на русском, без сокращений и без пересказа.
-Если в `/menu` передан аргумент (например, `/menu ревью` или `/menu данные`), покажи только подходящие группы.
+Если в `/menu` передан аргумент (например, `/menu ревью`, `/menu geo` или `/menu данные`), покажи только подходящие группы.
 Ничего не запускай сам: это справка. После таблиц одной строкой предложи выполнить выбранный пункт.
-Навыки с префиксом (`anthropic-skills:`, `data:`, `design:`) приходят из плагинов и могут отсутствовать в конкретной сессии; если навыка нет в списке доступных, скажи об этом.
+Навыки с префиксом (`anthropic-skills:`, `data:`, `design:`, `claude-seo:`, `claude-blog:`) приходят из плагинов, а GEO и Schema живут в `~/.claude/skills` на iMac, поэтому в конкретной сессии их может не быть; если навыка нет в списке доступных, скажи об этом.
 
 ## Проверка кода (перед каждым коммитом и PR)
 
@@ -53,13 +53,70 @@ description: Шпаргалка по навыкам и командам этог
 | `pnpm --filter @ai-door/evals eval:docs` | Приёмка разбора файлов клиентов (PDF, XLSX, DWG, сканы) | `TEST_DATABASE_URL=postgres://... pnpm --filter @ai-door/evals eval:docs` |
 | `pnpm --filter @ai-door/evals perf <N>` | Нагрузочный прогон на N одновременных диалогов без реальной модели | `TEST_DATABASE_URL=postgres://... pnpm --filter @ai-door/evals perf 100` |
 
-## Сайт rf-dveri.ru и SEO
+## Сайт rf-dveri.ru: админка и свои навыки
 
 | Навык | Что делает | Пример |
 |---|---|---|
-| `/anthropic-skills:rf-dveri-admin` | Работа в админке UMI на rf-dveri.ru: лист замера, заголовки и метатеги, тег-блоки, тексты. Читать перед любой правкой сайта | `/anthropic-skills:rf-dveri-admin проверить заголовки раздела «Входные двери»` |
-| `/anthropic-skills:seo-audit` | Технический и on-page SEO-аудит: индексация, метатеги, перелинковка, микроразметка, скорость | `/anthropic-skills:seo-audit https://rf-dveri.ru/catalog/` |
-| `/anthropic-skills:programmatic-seo` | Шаблонные посадочные страницы: город + услуга, категории, сравнения, каталоги | `/anthropic-skills:programmatic-seo страницы «двери в <город>»` |
+| `/anthropic-skills:rf-dveri-admin` | Работа в админке UMI на rf-dveri.ru: лист замера, заголовки и метатеги, тег-блоки, тексты. Читать перед любой правкой сайта. В сессии на iMac называется `/rf-dveri-admin` | `/rf-dveri-admin проверить заголовки раздела «Входные двери»` |
+| `/seo-audit` | Свой навык (19.08): технический и on-page SEO-аудит. Имя совпадает с `/claude-seo:seo-audit` из плагина, в меню `/` выбирайте нужную строку | `/seo-audit https://rf-dveri.ru/catalog/` |
+| `/programmatic-seo` | Свой навык (19.08): аудит ветки каталога и шаблонные посадочные: город + услуга, категории, сравнения | `/programmatic-seo аудит ветки «Входные двери» по шаблону` |
+
+Навыки SEO, GEO, Blog и Schema ниже доступны в сессии приложения Claude на iMac с папкой `rf-dveri` (вкладка Code, окружение «This computer»). В облачной сессии `amo` их нет. Префикс `claude-seo:` и `claude-blog:` набирать не обязательно: достаточно `/seo-audit`, `/blog-write` и выбрать строку из списка.
+
+## SEO: плагин Claude SEO
+
+| Навык | Что делает | Пример |
+|---|---|---|
+| `/claude-seo:seo` | Вход в SEO-набор: подсказывает, какой из навыков ниже нужен | `/claude-seo:seo` |
+| `/claude-seo:seo-audit` | Полный SEO-аудит сайта | `/claude-seo:seo-audit https://rf-dveri.ru` |
+| `/claude-seo:seo-page` | Аудит одной страницы: заголовки, метатеги, контент, ссылки | `/claude-seo:seo-page https://rf-dveri.ru/catalog/vhodnye-dveri/` |
+| `/claude-seo:seo-technical` | Технический аудит: индексация, robots, sitemap, скорость, редиректы | `/claude-seo:seo-technical https://rf-dveri.ru` |
+| `/claude-seo:seo-schema` | Микроразметка Schema.org для страницы | `/claude-seo:seo-schema https://rf-dveri.ru/catalog/` |
+| `/claude-seo:seo-geo` | Оптимизация под ИИ-поиск внутри SEO-плагина | `/claude-seo:seo-geo https://rf-dveri.ru` |
+| `/claude-seo:seo-google` | Данные Google Search Console и рекомендации по ним | `/claude-seo:seo-google` |
+| `/claude-seo:seo-programmatic` | Шаблонные страницы силами плагина | `/claude-seo:seo-programmatic двери по городам` |
+| `/claude-seo:seo-plan` | План SEO-работ с приоритетами | `/claude-seo:seo-plan rf-dveri.ru на квартал` |
+
+## GEO: видимость в ИИ-поиске
+
+| Навык | Что делает | Пример |
+|---|---|---|
+| `/geo` | Вход в GEO-набор; быстрый прогон — слово quick после команды (раньше `/geo quick`) | `/geo quick` |
+| `/geo-audit` | GEO-аудит сайта: как его видят и цитируют ИИ-ответы (раньше `/geo audit <url>`) | `/geo-audit https://rf-dveri.ru` |
+| `/geo-citability` | Цитируемость текстов для ИИ: структура, факты, формулировки | `/geo-citability https://rf-dveri.ru/articles/` |
+| `/geo-llmstxt` | Файл `llms.txt` для сайта | `/geo-llmstxt https://rf-dveri.ru` |
+| `/geo-crawlers` | Доступ ИИ-ботов: robots.txt, заголовки, блокировки | `/geo-crawlers https://rf-dveri.ru` |
+| `/geo-technical` | Технические требования GEO | `/geo-technical https://rf-dveri.ru` |
+| `/geo-schema` | Микроразметка с прицелом на ИИ-ответы | `/geo-schema https://rf-dveri.ru/catalog/` |
+| `/geo-content` | Контент под ИИ-поиск: что дописать и переписать | `/geo-content https://rf-dveri.ru/catalog/vhodnye-dveri/` |
+| `/geo-report` | PDF-отчёт по GEO-аудиту (раньше `/geo report-pdf`) | `/geo-report` |
+| `/geo-compare` | Сравнение двух GEO-аудитов: что изменилось | `/geo-compare` |
+| `/geo-proposal` | Коммерческое предложение по итогам GEO-аудита | `/geo-proposal` |
+
+## Schema и статьи: плагин Claude Blog
+
+| Навык | Что делает | Пример |
+|---|---|---|
+| `/schema` | JSON-LD для страницы | `/schema https://rf-dveri.ru/catalog/vhodnye-dveri/` |
+| `/claude-blog:blog` | Вход в набор для статей | `/claude-blog:blog` |
+| `/claude-blog:blog-write` | Написать статью по теме | `/claude-blog:blog-write как выбрать входную дверь в квартиру` |
+| `/claude-blog:blog-analyze` | Разбор существующей статьи: структура, охват темы, слабые места | `/claude-blog:blog-analyze https://rf-dveri.ru/articles/...` |
+| `/claude-blog:blog-seo-check` | Проверка статьи на SEO: заголовки, ключи, ссылки, метатеги | `/claude-blog:blog-seo-check` |
+| `/claude-blog:blog-style` | Профиль голоса и стиля по вашим статьям | `/claude-blog:blog-style https://rf-dveri.ru/articles/a https://rf-dveri.ru/articles/b` |
+| `/claude-blog:blog-brand` | Профиль бренда для статей: аудитория, тон, запреты | `/claude-blog:blog-brand РФ-Двери` |
+| `/claude-blog:blog-repurpose` | Переупаковать статью: соцсети, рассылка, короткие форматы | `/claude-blog:blog-repurpose статья про замки` |
+
+## Как открыть сессию с навыками на iMac
+
+1. Приложение Claude → вкладка Code (значок `</>` вверху слева).
+2. Слева вверху «+ New»: новая сессия.
+3. Под полем ввода выбрать окружение «This computer» (не Remote Control, не облако).
+4. Под полем ввода → папка → «Open folder…» → `⌘⇧H` → выбрать `rf-dveri`.
+5. Окно «Choose environment» в центре не трогать: это настройка облачных сессий.
+6. Внизу справа режим «Auto»: Claude не спрашивает разрешение на каждое действие.
+7. В поле ввода набрать `/`: список навыков фильтруется по набранному.
+
+Сессии из группы Remote Control (например «ИИ-монтажёр») работают только при запущенном в Терминале Claude Code, иначе «Can't reach your computer».
 
 ## Браузер и компьютер пользователя
 
