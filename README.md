@@ -40,4 +40,4 @@ pnpm build            # api, worker, widget.zip
 
 Секреты — только в `.env` (шаблон — `.env.example`), в репозиторий не попадают.
 
-Шпаргалка по командам и навыкам Claude Code: в сессии — `/menu` (`.claude/skills/menu/SKILL.md`), в браузере — [`docs/menu.html`](docs/menu.html) с кнопками «Копировать» (пересборка после правки SKILL.md: `pnpm menu`).
+Шпаргалка по командам и навыкам Claude Code живёт в репозитории [aleksnevedrov-cloud/skills](https://github.com/aleksnevedrov-cloud/skills) (плагин `rf-dveri`): в сессии — `/rf-dveri:menu`, установка — `/plugin marketplace add aleksnevedrov-cloud/skills` и `/plugin install rf-dveri@skills`.
