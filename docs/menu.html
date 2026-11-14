@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Шпаргалка: навыки и команды — AI-агент продаж дверей</title>
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --ink:#1b1b1f; --muted:#6b6b73; --line:#e3e3e0; --accent:#245c9b; --ok:#1d7a46; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#15161a; --card:#1e2026; --ink:#ececf0; --muted:#9a9aa6; --line:#2d2f37; --accent:#7fb2ee; --ok:#5fcf8d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { padding:28px 24px 12px; max-width:1100px; margin:0 auto; }
+  h1 { margin:0 0 6px; font-size:22px; }
+  header p { margin:0; color:var(--muted); }
+  nav { display:flex; flex-wrap:wrap; gap:8px; padding:12px 24px 4px; max-width:1100px; margin:0 auto; }
+  nav a { font-size:13px; padding:4px 10px; border:1px solid var(--line); border-radius:999px; color:var(--ink); text-decoration:none; background:var(--card); }
+  nav a:hover { border-color:var(--accent); }
+  main { max-width:1100px; margin:0 auto; padding:8px 24px 48px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:16px 0; }
+  h2 { margin:0 0 10px; font-size:17px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-weight:600; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; padding:6px 8px; border-bottom:1px solid var(--line); }
+  td { padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  td:nth-child(1) { width:28%; } td:nth-child(3) { width:34%; }
+  code { font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:rgba(127,127,127,.12); padding:1px 5px; border-radius:4px; word-break:break-word; }
+  td:nth-child(3) .cmd { display:flex; }
+  .cmd { display:inline-flex; align-items:center; gap:8px; margin:2px 0; padding:0; border:0; background:none; color:inherit; text-align:left; cursor:pointer; font:inherit; max-width:100%; }
+  .cmd code { border:1px solid var(--line); background:var(--bg); padding:4px 8px; }
+  .cmd .copy { font-size:12px; color:var(--accent); white-space:nowrap; opacity:0; transition:opacity .15s; }
+  .cmd:hover .copy, .cmd:focus-visible .copy { opacity:1; }
+  .cmd.done .copy { color:var(--ok); opacity:1; }
+  .cmd:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
+  .note { margin:10px 0 0; color:var(--muted); font-size:14px; }
+  footer { max-width:1100px; margin:0 auto; padding:0 24px 32px; color:var(--muted); font-size:13px; }
+  @media (max-width: 720px) { td:nth-child(1), td:nth-child(3) { width:auto; } thead { display:none; } tr { display:block; padding:8px 0; } td { display:block; border:0; padding:2px 0; } tr + tr { border-top:1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Шпаргалка: навыки и команды</h1>
+  <p>Нажмите на команду, чтобы скопировать. В сессии Claude Code та же справка открывается по <strong>/menu</strong>.</p>
+</header>
+<nav><a href="#g0">Проверка кода (перед каждым коммитом и PR)</a><a href="#g1">Ревью с Claude (навыки)</a><a href="#g2">Запуск и сборка</a><a href="#g3">Evals и нагрузка</a><a href="#g4">Сайт rf-dveri.ru и SEO</a><a href="#g5">Документы и отчёты</a><a href="#g6">Служебные</a></nav>
+<main>
+<section id="g0">
+<h2>Проверка кода (перед каждым коммитом и PR)</h2>
+<table><thead><tr><th>Команда</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm check" title="Скопировать"><code>pnpm check</code><span class="copy">Копировать</span></button></td><td>Полная проверка: lint + поиск секретов + typecheck + тесты. Красное — не коммитить</td><td><button class="cmd" type="button" data-cmd="pnpm check" title="Скопировать"><code>pnpm check</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm lint" title="Скопировать"><code>pnpm lint</code><span class="copy">Копировать</span></button></td><td>Только ESLint</td><td><button class="cmd" type="button" data-cmd="pnpm lint" title="Скопировать"><code>pnpm lint</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm secrets" title="Скопировать"><code>pnpm secrets</code><span class="copy">Копировать</span></button></td><td>Поиск ключей и паролей в отслеживаемых файлах</td><td><button class="cmd" type="button" data-cmd="pnpm secrets" title="Скопировать"><code>pnpm secrets</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm typecheck" title="Скопировать"><code>pnpm typecheck</code><span class="copy">Копировать</span></button></td><td>Только типы TypeScript во всех пакетах</td><td><button class="cmd" type="button" data-cmd="pnpm typecheck" title="Скопировать"><code>pnpm typecheck</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm test" title="Скопировать"><code>pnpm test</code><span class="copy">Копировать</span></button></td><td>Тесты vitest. Нужны <code>TEST_DATABASE_URL</code>, <code>TEST_REDIS_URL</code> и <code>docker compose up postgres redis</code></td><td><button class="cmd" type="button" data-cmd="pnpm test" title="Скопировать"><code>pnpm test</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm --filter &lt;пакет&gt; test" title="Скопировать"><code>pnpm --filter &lt;пакет&gt; test</code><span class="copy">Копировать</span></button></td><td>Тесты одного пакета</td><td><button class="cmd" type="button" data-cmd="pnpm --filter @ai-door/agent test" title="Скопировать"><code>pnpm --filter @ai-door/agent test</code><span class="copy">Копировать</span></button></td></tr>
+</tbody></table>
+
+</section>
+<section id="g1">
+<h2>Ревью с Claude (навыки)</h2>
+<table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
+<tr><td><button class="cmd" type="button" data-cmd="/code-review" title="Скопировать"><code>/code-review</code><span class="copy">Копировать</span></button></td><td>Поиск ошибок в текущем diff или в PR, ветке, пути. Уровень усилий первым аргументом</td><td><button class="cmd" type="button" data-cmd="/code-review medium" title="Скопировать"><code>/code-review medium</code><span class="copy">Копировать</span></button><button class="cmd" type="button" data-cmd="/code-review high --max-findings 12" title="Скопировать"><code>/code-review high --max-findings 12</code><span class="copy">Копировать</span></button><button class="cmd" type="button" data-cmd="/code-review --fix" title="Скопировать"><code>/code-review --fix</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/security-review" title="Скопировать"><code>/security-review</code><span class="copy">Копировать</span></button></td><td>Проверка изменений ветки по правилам <code>REVIEW.md</code>: изоляция аккаунтов, секреты, ПДн, SSRF, промпт-инъекции</td><td><button class="cmd" type="button" data-cmd="/security-review" title="Скопировать"><code>/security-review</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/simplify" title="Скопировать"><code>/simplify</code><span class="copy">Копировать</span></button></td><td>Упрощение и чистка изменённого кода без поиска багов</td><td><button class="cmd" type="button" data-cmd="/simplify" title="Скопировать"><code>/simplify</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/run" title="Скопировать"><code>/run</code><span class="copy">Копировать</span></button></td><td>Запустить приложение и показать результат изменения вживую</td><td><button class="cmd" type="button" data-cmd="/run api" title="Скопировать"><code>/run api</code><span class="copy">Копировать</span></button><button class="cmd" type="button" data-cmd="/run виджет" title="Скопировать"><code>/run виджет</code><span class="copy">Копировать</span></button></td></tr>
+</tbody></table>
+<p class="note">Порядок перед PR: <code>pnpm check</code> → <code>/code-review</code> → <code>/security-review</code> → описание PR (что изменено, как проверено, уровень риска по <code>REVIEW.md</code>, как откатить).</p>
+</section>
+<section id="g2">
+<h2>Запуск и сборка</h2>
+<table><thead><tr><th>Команда</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
+<tr><td><button class="cmd" type="button" data-cmd="docker compose up postgres redis" title="Скопировать"><code>docker compose up postgres redis</code><span class="copy">Копировать</span></button></td><td>Поднять базу и Redis для тестов и разработки</td><td><button class="cmd" type="button" data-cmd="docker compose up -d postgres redis" title="Скопировать"><code>docker compose up -d postgres redis</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="docker compose up -d --build" title="Скопировать"><code>docker compose up -d --build</code><span class="copy">Копировать</span></button></td><td>Собрать и запустить всё (api, worker, postgres, redis)</td><td><button class="cmd" type="button" data-cmd="docker compose up -d --build" title="Скопировать"><code>docker compose up -d --build</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm --filter @ai-door/api dev" title="Скопировать"><code>pnpm --filter @ai-door/api dev</code><span class="copy">Копировать</span></button></td><td>API Gateway в режиме разработки с перезапуском</td><td><button class="cmd" type="button" data-cmd="pnpm --filter @ai-door/api dev" title="Скопировать"><code>pnpm --filter @ai-door/api dev</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm --filter @ai-door/worker dev" title="Скопировать"><code>pnpm --filter @ai-door/worker dev</code><span class="copy">Копировать</span></button></td><td>Воркер BullMQ в режиме разработки</td><td><button class="cmd" type="button" data-cmd="pnpm --filter @ai-door/worker dev" title="Скопировать"><code>pnpm --filter @ai-door/worker dev</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm build" title="Скопировать"><code>pnpm build</code><span class="copy">Копировать</span></button></td><td>Сборка api, worker и <code>widget.zip</code></td><td><button class="cmd" type="button" data-cmd="pnpm build" title="Скопировать"><code>pnpm build</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm widget:build" title="Скопировать"><code>pnpm widget:build</code><span class="copy">Копировать</span></button></td><td>Только архив виджета для amoМаркета</td><td><button class="cmd" type="button" data-cmd="WIDGET_API_URL=https://ai.rf-dveri.ru pnpm widget:build" title="Скопировать"><code>WIDGET_API_URL=https://ai.rf-dveri.ru pnpm widget:build</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm db:migrate" title="Скопировать"><code>pnpm db:migrate</code><span class="copy">Копировать</span></button></td><td>Применить миграции PostgreSQL (только вперёд, новые файлы в <code>packages/db/migrations</code>)</td><td><button class="cmd" type="button" data-cmd="DATABASE_URL=postgres://... pnpm db:migrate" title="Скопировать"><code>DATABASE_URL=postgres://... pnpm db:migrate</code><span class="copy">Копировать</span></button></td></tr>
+</tbody></table>
+
+</section>
+<section id="g3">
+<h2>Evals и нагрузка</h2>
+<table><thead><tr><th>Команда</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm --filter @ai-door/evals eval" title="Скопировать"><code>pnpm --filter @ai-door/evals eval</code><span class="copy">Копировать</span></button></td><td>52 эталонных диалога на реальной модели. Нужен <code>ANTHROPIC_API_KEY</code></td><td><button class="cmd" type="button" data-cmd="ANTHROPIC_API_KEY=... TEST_DATABASE_URL=postgres://... pnpm --filter @ai-door/evals eval" title="Скопировать"><code>ANTHROPIC_API_KEY=... TEST_DATABASE_URL=postgres://... pnpm --filter @ai-door/evals eval</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm --filter @ai-door/evals eval:docs" title="Скопировать"><code>pnpm --filter @ai-door/evals eval:docs</code><span class="copy">Копировать</span></button></td><td>Приёмка разбора файлов клиентов (PDF, XLSX, DWG, сканы)</td><td><button class="cmd" type="button" data-cmd="TEST_DATABASE_URL=postgres://... pnpm --filter @ai-door/evals eval:docs" title="Скопировать"><code>TEST_DATABASE_URL=postgres://... pnpm --filter @ai-door/evals eval:docs</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="pnpm --filter @ai-door/evals perf &lt;N&gt;" title="Скопировать"><code>pnpm --filter @ai-door/evals perf &lt;N&gt;</code><span class="copy">Копировать</span></button></td><td>Нагрузочный прогон на N одновременных диалогов без реальной модели</td><td><button class="cmd" type="button" data-cmd="TEST_DATABASE_URL=postgres://... pnpm --filter @ai-door/evals perf 100" title="Скопировать"><code>TEST_DATABASE_URL=postgres://... pnpm --filter @ai-door/evals perf 100</code><span class="copy">Копировать</span></button></td></tr>
+</tbody></table>
+
+</section>
+<section id="g4">
+<h2>Сайт rf-dveri.ru и SEO</h2>
+<table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
+<tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:rf-dveri-admin" title="Скопировать"><code>/anthropic-skills:rf-dveri-admin</code><span class="copy">Копировать</span></button></td><td>Работа в админке UMI на rf-dveri.ru: лист замера, заголовки и метатеги, тег-блоки, тексты</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:rf-dveri-admin проверить заголовки раздела «Входные двери»" title="Скопировать"><code>/anthropic-skills:rf-dveri-admin проверить заголовки раздела «Входные двери»</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:seo-audit" title="Скопировать"><code>/anthropic-skills:seo-audit</code><span class="copy">Копировать</span></button></td><td>Технический и on-page SEO-аудит сайта или страницы</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:seo-audit https://rf-dveri.ru/catalog/" title="Скопировать"><code>/anthropic-skills:seo-audit https://rf-dveri.ru/catalog/</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:programmatic-seo" title="Скопировать"><code>/anthropic-skills:programmatic-seo</code><span class="copy">Копировать</span></button></td><td>Шаблонные посадочные страницы: город + услуга, категории, сравнения</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:programmatic-seo страницы «двери в &lt;город&gt;»" title="Скопировать"><code>/anthropic-skills:programmatic-seo страницы «двери в &lt;город&gt;»</code><span class="copy">Копировать</span></button></td></tr>
+</tbody></table>
+
+</section>
+<section id="g5">
+<h2>Документы и отчёты</h2>
+<table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
+<tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:docs" title="Скопировать"><code>/anthropic-skills:docs</code><span class="copy">Копировать</span></button></td><td>Документ в Artifacts → Docs: отчёт, регламент, инструкция</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:docs отчёт по фазе 6" title="Скопировать"><code>/anthropic-skills:docs отчёт по фазе 6</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:xlsx" title="Скопировать"><code>/anthropic-skills:xlsx</code><span class="copy">Копировать</span></button></td><td>Создать или поправить таблицу Excel, например правила цен</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:xlsx выгрузить правила цен из packages/pricing" title="Скопировать"><code>/anthropic-skills:xlsx выгрузить правила цен из packages/pricing</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:pdf" title="Скопировать"><code>/anthropic-skills:pdf</code><span class="copy">Копировать</span></button></td><td>Прочитать, собрать, разделить PDF</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:pdf извлечь таблицу из накладной" title="Скопировать"><code>/anthropic-skills:pdf извлечь таблицу из накладной</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/anthropic-skills:deep-research" title="Скопировать"><code>/anthropic-skills:deep-research</code><span class="copy">Копировать</span></button></td><td>Исследование темы по многим источникам с отчётом</td><td><button class="cmd" type="button" data-cmd="/anthropic-skills:deep-research требования amoМаркета к виджетам 2026" title="Скопировать"><code>/anthropic-skills:deep-research требования amoМаркета к виджетам 2026</code><span class="copy">Копировать</span></button></td></tr>
+</tbody></table>
+
+</section>
+<section id="g6">
+<h2>Служебные</h2>
+<table><thead><tr><th>Навык</th><th>Что делает</th><th>Пример</th></tr></thead><tbody>
+<tr><td><button class="cmd" type="button" data-cmd="/loop" title="Скопировать"><code>/loop</code><span class="copy">Копировать</span></button></td><td>Повторять команду с интервалом</td><td><button class="cmd" type="button" data-cmd="/loop 10m проверь статус CI" title="Скопировать"><code>/loop 10m проверь статус CI</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/init" title="Скопировать"><code>/init</code><span class="copy">Копировать</span></button></td><td>Пересобрать <code>CLAUDE.md</code> по коду</td><td><button class="cmd" type="button" data-cmd="/init" title="Скопировать"><code>/init</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/fewer-permission-prompts" title="Скопировать"><code>/fewer-permission-prompts</code><span class="copy">Копировать</span></button></td><td>Добавить allowlist в <code>.claude/settings.json</code>, чтобы меньше спрашивало разрешений</td><td><button class="cmd" type="button" data-cmd="/fewer-permission-prompts" title="Скопировать"><code>/fewer-permission-prompts</code><span class="copy">Копировать</span></button></td></tr>
+<tr><td><button class="cmd" type="button" data-cmd="/update-config" title="Скопировать"><code>/update-config</code><span class="copy">Копировать</span></button></td><td>Правки <code>settings.json</code>: хуки, разрешения, переменные окружения</td><td><button class="cmd" type="button" data-cmd="/update-config разрешить команды pnpm" title="Скопировать"><code>/update-config разрешить команды pnpm</code><span class="copy">Копировать</span></button></td></tr>
+</tbody></table>
+
+</section>
+</main>
+<footer>Собрано из <code>.claude/skills/menu/SKILL.md</code> командой <code>node scripts/build-menu.mjs</code>. Правьте SKILL.md, затем пересоберите страницу.</footer>
+<script>
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.cmd');
+  if (!btn) return;
+  const text = btn.dataset.cmd;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+  const label = btn.querySelector('.copy');
+  const prev = label.textContent;
+  label.textContent = 'Скопировано';
+  btn.classList.add('done');
+  setTimeout(() => { label.textContent = prev; btn.classList.remove('done'); }, 1400);
+});
+</script>
+</body>
+</html>

@@ -39,3 +39,5 @@ pnpm build            # api, worker, widget.zip
 (по умолчанию `postgres://aidoor:aidoor@localhost:5432/aidoor_test`); каждый тестовый файл работает в своей схеме.
 
 Секреты — только в `.env` (шаблон — `.env.example`), в репозиторий не попадают.
+
+Шпаргалка по командам и навыкам Claude Code: в сессии — `/menu` (`.claude/skills/menu/SKILL.md`), в браузере — [`docs/menu.html`](docs/menu.html) с кнопками «Копировать» (пересборка после правки SKILL.md: `pnpm menu`).
