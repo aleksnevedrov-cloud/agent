@@ -216,6 +216,29 @@ describe('окно переписки', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
   });
 
+  it('окно закрывается само, когда карточка закрыта без перезагрузки (колонка исчезла или сменился адрес)', async () => {
+    document.body.innerHTML = '<div class="card-holder"><div class="card-holder__right" style="width:600px;height:500px">лента</div></div>';
+    const calls: { url: string; method?: string; data?: string }[] = [];
+    const self = fakeSelf({ 'GET /chat/v1/chats': chatsView, 'GET /chat/v1/chats/11/messages': { messages: [], hasMore: false }, 'POST /chat/v1/session': { token: 'a'.repeat(48) } }, calls);
+    const chat = new ChatApi(new MessengerApi(self, 'https://chat.example.ru'), 'https://chat.example.ru');
+    await openChatWindow(chat, { ctx: { leadId: 30053436 } });
+    await tick();
+    expect(document.querySelector('.rfm-cw')).not.toBeNull();
+    // amo убрала карточку из DOM — через полсекунды окна нет.
+    document.querySelector('.card-holder')!.remove();
+    await new Promise((r) => setTimeout(r, 650));
+    expect(document.querySelector('.rfm-cw')).toBeNull();
+
+    // Второй случай: карточка осталась, но адрес сменился (переход к списку сделок).
+    document.body.innerHTML = '<div class="card-holder"><div class="card-holder__right" style="width:600px;height:500px">лента</div></div>';
+    await openChatWindow(chat, { ctx: { leadId: 30053436 } });
+    await tick();
+    expect(document.querySelector('.rfm-cw')).not.toBeNull();
+    window.history.pushState({}, '', '/leads/pipeline/');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(document.querySelector('.rfm-cw')).toBeNull();
+  });
+
   it('без чатов — экран «Написать» с выбором канала и номера из контакта', async () => {
     document.body.innerHTML = '';
     const self = fakeSelf(

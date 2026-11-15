@@ -537,6 +537,14 @@ export async function openChatWindow(chat: ChatApi, o: OpenOptions): Promise<() 
   }
   const ro = !embed && typeof ResizeObserver !== 'undefined' && column ? new ResizeObserver(reposition) : null;
   ro?.observe(column as Element);
+  // Карточка в amoCRM закрывается без перезагрузки страницы: следим, что колонка карточки ещё на месте
+  // и адрес не сменился, иначе окно «повисает» в углу над списком сделок.
+  const openedAt = w.location?.href ?? '';
+  const card = embed ? null : (column ?? doc.querySelector<HTMLElement>('.card-holder, #card_holder, .card-fields'));
+  const cardGone = () => (card ? !doc.contains(card) : false) || (openedAt !== '' && w.location.href !== openedAt);
+  const watch = embed ? null : w.setInterval(() => cardGone() && close(), 500);
+  const onNav = () => void (cardGone() && close());
+  if (!embed) w.addEventListener('popstate', onNav);
 
   const q = <T extends HTMLElement>(sel: string) => win.querySelector<T>(sel) as T;
   const body = q<HTMLElement>('[data-cw-body]');
@@ -1177,6 +1185,8 @@ ${current?.contact.phone ? '<button type="button" data-cw="copy">Скопиро�
     doc.removeEventListener('keydown', onKey);
     w.removeEventListener('resize', reposition);
     w.removeEventListener('scroll', reposition, true);
+    w.removeEventListener('popstate', onNav);
+    if (watch !== null) w.clearInterval(watch);
     ro?.disconnect();
     win.remove();
   }

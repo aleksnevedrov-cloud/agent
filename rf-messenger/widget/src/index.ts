@@ -855,6 +855,8 @@ export function createCallbacks(self: AmoWidgetSelf, apiUrl: string = __API_URL_
   };
   // Значок у пункта меню: счётчик чатов с красным числом, опрос раз в 60 с (SSE — на самой странице раздела).
   let stopInbox: (() => void) | null = null;
+  /** Окно переписки, открытое из карточки: закрывается вместе с карточкой (destroy). */
+  let closeCardChat: (() => void) | null = null;
   const startBadge = () => {
     const flag = window as Window & { __rfmBadge?: boolean };
     if (flag.__rfmBadge) return;
@@ -889,7 +891,7 @@ export function createCallbacks(self: AmoWidgetSelf, apiUrl: string = __API_URL_
           if (!btn) return;
           const c = cardContext(self);
           if (!c) return;
-          if (btn.dataset.rfm === 'chat') void openChatWindow(chat, { ctx: c });
+          if (btn.dataset.rfm === 'chat') void openChatWindow(chat, { ctx: c }).then((close) => (closeCardChat = close));
           else void openComposer(api, c);
         });
         bindTemplates();
@@ -916,6 +918,8 @@ export function createCallbacks(self: AmoWidgetSelf, apiUrl: string = __API_URL_
     }),
     onSave: () => true,
     destroy: safe(() => {
+      closeCardChat?.();
+      closeCardChat = null;
       stopInbox?.();
       stopInbox = null;
     }),
