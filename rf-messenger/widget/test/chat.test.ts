@@ -99,7 +99,9 @@ describe('лента сообщений', () => {
       ],
       2,
     );
-    expect(html).toContain('rfm-cw-unread">2<');
+    // В карточке сделки счётчика неотвеченных нет; он только в разделе «Rf Messenger».
+    expect(html).not.toContain('rfm-cw-unread');
+    expect(chatListHtml([{ id: 1, channelId: 1, kind: 'whatsapp', kindText: 'WhatsApp', channelTitle: 'WA', channelConnected: true, title: 'Иван', isGroup: false, contact: {}, unread: 2, lastAt: '2026-11-07T08:00:00Z', last: null, historyAvailable: true }], null, { counters: true })).toContain('rfm-cw-unread">2<');
     expect(html).toContain('+79361472324');
     expect(html).toContain('@ivan');
     expect(html).toMatch(/data-id="2"[^>]*|rfm-cw-item-on/);
@@ -157,6 +159,8 @@ describe('окно переписки', () => {
     expect(win.querySelector('.rfm-cw-who')!.textContent).toBe('Мария');
     // Правило счётчиков: открытие ничего не меняет — /read не вызывается.
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/chats/11/read'))).toBe(false);
+    // Кнопки «Отвечать не нужно» в карточке сделки нет (чат 11 имеет unread: 1) — она только в разделе левого меню.
+    expect(win.querySelector('[data-cw="noreply"]')).toBeNull();
     // ☰ — список чатов контакта.
     win.querySelector<HTMLElement>('[data-cw="list"]')!.click();
     expect(win.querySelectorAll('[data-cw="open"]')).toHaveLength(2);

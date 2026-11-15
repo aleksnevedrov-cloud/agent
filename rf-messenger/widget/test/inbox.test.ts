@@ -138,7 +138,7 @@ describe('раздел «Rf Messenger»', () => {
     await tick();
     expect(calls.some((c) => c.url.includes('/read'))).toBe(false);
     expect(host.querySelector('.rfm-ib-row[data-id="11"] .rfm-ib-red')!.textContent).toBe('2');
-    // Встроенное окно: красная кнопка «Отвечать не нужно» с числом неотвеченных.
+    // Встроенное окно раздела: красная кнопка «Отвечать не нужно» с числом неотвеченных (в карточке сделки её нет — см. chat.test.ts).
     const btn = host.querySelector<HTMLElement>('[data-cw="noreply"]')!;
     expect(btn.textContent).toContain('2');
     btn.click();

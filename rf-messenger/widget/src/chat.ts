@@ -290,13 +290,13 @@ export function messagesHtml(list: readonly MessageView[], opts: { isGroup?: boo
 
 const lastPreview = (c: ChatListItem) => (c.last ? (c.last.text ? c.last.text : `[${c.last.kind}]`) : '');
 
-export function chatListHtml(chats: readonly ChatListItem[], currentId: number | null): string {
+export function chatListHtml(chats: readonly ChatListItem[], currentId: number | null, opts: { counters?: boolean } = {}): string {
   if (!chats.length) return '<div class="rfm-cw-empty">Чатов с этим контактом пока нет</div>';
   return chats
     .map(
       (c) => `<button type="button" class="rfm-cw-item${c.id === currentId ? ' rfm-cw-item-on' : ''}" data-cw="open" data-id="${c.id}">
 ${kindBadge(c.kind)}<span class="rfm-cw-item-main"><b>${esc(c.title)}</b><small>${esc(c.contact.phone ?? (c.contact.username ? `@${c.contact.username}` : c.channelTitle))}</small><small class="rfm-cw-item-last">${esc(lastPreview(c)).slice(0, 80)}</small></span>
-<span class="rfm-cw-item-side"><small>${timeLabel(c.lastAt)}</small>${c.unread ? `<i class="rfm-cw-unread">${c.unread}</i>` : ''}</span></button>`,
+<span class="rfm-cw-item-side"><small>${timeLabel(c.lastAt)}</small>${opts.counters && c.unread ? `<i class="rfm-cw-unread">${c.unread}</i>` : ''}</span></button>`,
     )
     .join('');
 }
@@ -571,7 +571,8 @@ export async function openChatWindow(chat: ChatApi, o: OpenOptions): Promise<() 
     if (!current) return;
     const prevH = body.scrollHeight;
     const prevTop = body.scrollTop;
-    const unanswered = current.unanswered ?? current.unread ?? 0;
+    // Кнопка «Отвечать не нужно» — только в разделе «Rf Messenger» (встроенный режим); в карточке сделки её нет (решение от 15.11).
+    const unanswered = embed ? (current.unanswered ?? current.unread ?? 0) : 0;
     const noReply = unanswered > 0 ? `<div class="rfm-cw-noreply"><button type="button" data-cw="noreply" title="Закрыть неотвеченные без ответа">Отвечать не нужно <i>${unanswered}</i></button></div>` : '';
     body.innerHTML = (hasMore ? '<div class="rfm-cw-loading" data-cw-more>Прокрутите вверх, чтобы загрузить ещё</div>' : '') + messagesHtml(messages, { isGroup: current.isGroup }) + (!messages.length ? '<div class="rfm-cw-empty">Сообщений пока нет — напишите первым</div>' : '') + noReply;
     if (keepScroll) body.scrollTop = body.scrollHeight - prevH + prevTop;
@@ -780,7 +781,7 @@ export async function openChatWindow(chat: ChatApi, o: OpenOptions): Promise<() 
 
   const showList = () => {
     if (!view) return;
-    overlay.innerHTML = `<div class="rfm-cw-drawer"><div class="rfm-cw-drawer-head"><button type="button" class="rfm-cw-ib" data-cw="back">←</button>Чаты контакта · ${view.chats.length}</div><div class="rfm-cw-list">${chatListHtml(view.chats, current?.id ?? null)}</div><div style="padding:8px"><button type="button" class="rfm-cw-btn" data-cw="compose">Написать в другой мессенджер</button></div></div>`;
+    overlay.innerHTML = `<div class="rfm-cw-drawer"><div class="rfm-cw-drawer-head"><button type="button" class="rfm-cw-ib" data-cw="back">←</button>Чаты контакта · ${view.chats.length}</div><div class="rfm-cw-list">${chatListHtml(view.chats, current?.id ?? null, { counters: Boolean(embed) })}</div><div style="padding:8px"><button type="button" class="rfm-cw-btn" data-cw="compose">Написать в другой мессенджер</button></div></div>`;
   };
 
   const showDeals = async () => {
