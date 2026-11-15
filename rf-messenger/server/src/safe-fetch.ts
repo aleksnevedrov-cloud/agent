@@ -21,6 +21,21 @@ function isPrivate(ip: string): boolean {
 }
 
 export type Resolver = (host: string) => Promise<string[]>;
+
+/**
+ * Файловые хранилища, которые изнутри облака отвечают внутренним адресом. GREEN-API кладёт медиа MAX
+ * в DigitalOcean Spaces (do-mediaout-max.fra1.digitaloceanspaces.com); наш сервер тоже в DigitalOcean,
+ * и DNS отдаёт ему адрес Spaces из внутренней сети 10.x. Для этих имён — только https и только
+ * внутренний адрес сети 10.0.0.0/8 (не localhost, не метаданные облака 169.254.x, не 172/192).
+ */
+export const TRUSTED_CLOUD_STORAGE_SUFFIXES = ['digitaloceanspaces.com'] as const;
+
+function trustedCloudStorage(url: URL, addrs: readonly string[]): boolean {
+  const h = url.hostname.toLowerCase();
+  if (url.protocol !== 'https:' || isIP(h)) return false;
+  if (!TRUSTED_CLOUD_STORAGE_SUFFIXES.some((d) => h.endsWith(`.${d}`))) return false;
+  return addrs.every((ip) => !isPrivate(ip) || (isIP(ip) === 4 && ip.startsWith('10.')));
+}
 const dnsResolve: Resolver = async (h) => (await lookup(h, { all: true })).map((a) => a.address);
 
 /** Запрет внутренних адресов (SSRF). */
@@ -35,7 +50,8 @@ export async function assertPublicUrl(raw: string, resolve: Resolver = dnsResolv
   if (url.username || url.password) throw new Error('Адрес не должен содержать логин и пароль');
   const host = url.hostname.replace(/^\[|\]$/g, '');
   const addrs = isIP(host) ? [host] : await resolve(host);
-  if (!addrs.length || addrs.some(isPrivate)) throw new Error('Адрес указывает во внутреннюю сеть');
+  if (!addrs.length) throw new Error('Адрес указывает во внутреннюю сеть');
+  if (addrs.some(isPrivate) && !trustedCloudStorage(url, addrs)) throw new Error('Адрес указывает во внутреннюю сеть');
   return url;
 }
 
