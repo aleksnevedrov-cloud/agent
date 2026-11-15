@@ -221,6 +221,16 @@ export function statusPill(c: Pick<ChannelView, 'kind' | 'status'>): { text: str
   return { text: 'Ошибка', cls: 'rfm-err-bg' };
 }
 
+/** Класс заливки плитки выбора мессенджера по виду канала. */
+export function optClass(kind: string): string {
+  if (kind === 'whatsapp') return 'rfm-opt-wa';
+  if (kind === 'telegram_bot' || kind === 'telegram_user') return 'rfm-opt-tg';
+  if (kind === 'max' || kind === 'max_phone') return 'rfm-opt-max';
+  if (kind === 'vk') return 'rfm-opt-vk';
+  if (kind === 'avito') return 'rfm-opt-av';
+  return '';
+}
+
 function channelIcon(kind: string): string {
   if (kind === 'whatsapp') return `<div class="rfm-ico rfm-wa">${ICON.chat}</div>`;
   if (kind === 'telegram_bot' || kind === 'telegram_user') return `<div class="rfm-ico rfm-tg">${ICON.send}</div>`;
@@ -568,6 +578,15 @@ const CARD_CSS = `
 .rfm-opt[disabled]{opacity:.55;cursor:default}
 .rfm-opt .rfm-ico{width:28px;height:28px}
 .rfm-opt .rfm-ico svg{width:16px;height:16px}
+/* Цвет мессенджера заливает всю плитку, значок на этом фоне — белый кружок с цветом канала. */
+.rfm-opt.rfm-opt-wa{background:#e6f6ea;border-color:#bfe6cb}
+.rfm-opt.rfm-opt-tg{background:#e6f1fb;border-color:#bfd8f3}
+.rfm-opt.rfm-opt-max{background:#ebe7fb;border-color:#d1c8f5}
+.rfm-opt.rfm-opt-vk{background:#e4eefb;border-color:#bcd3f5}
+.rfm-opt.rfm-opt-av{background:#e6f4ec;border-color:#bfe3cf}
+.rfm-opt[class*=rfm-opt-] .rfm-ico{background:#fff}
+.rfm-opt[aria-pressed=true]{border-color:#4c8bf5;box-shadow:0 0 0 1px #4c8bf5 inset}
+.rfm-opt[disabled]{background:#fff;border-color:#cfd7df}
 .rfm-modal select,.rfm-modal textarea{width:100%;border:1px solid #cfd7df;border-radius:6px;font:inherit;padding:7px 10px}
 .rfm-modal textarea{min-height:90px;resize:vertical}
 .rfm-actions{display:flex;justify-content:flex-end;gap:8px}
@@ -599,7 +618,7 @@ export function renderComposer(v: ComposeView, sel: { channelId?: number; contac
     .map((c) => {
       const icon = c.kind === 'whatsapp' ? `<div class="rfm-ico rfm-wa">${ICON.chat}</div>` : c.kind === 'telegram_user' ? `<div class="rfm-ico rfm-tg">${ICON.user}</div>` : channelIcon(c.kind);
       const sub = c.connected ? esc(c.title) : 'Не подключён';
-      return `<button type="button" class="rfm-opt" data-rfm="pick-channel" data-id="${c.id}" aria-pressed="${c.id === sel.channelId}"${c.connected ? '' : ' disabled'}>${icon}<span><b style="font-weight:500">${esc(c.kindText)}</b><br><small>${sub}</small></span></button>`;
+      return `<button type="button" class="rfm-opt ${optClass(c.kind)}" data-rfm="pick-channel" data-id="${c.id}" aria-pressed="${c.id === sel.channelId}"${c.connected ? '' : ' disabled'}>${icon}<span><b style="font-weight:500">${esc(c.kindText)}</b><br><small>${sub}</small></span></button>`;
     })
     .join('');
   const current = v.channels.find((c) => c.id === sel.channelId);

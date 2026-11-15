@@ -114,6 +114,8 @@ describe('написать первым', () => {
     expect(html).not.toContain('<i>tg</i>');
     expect(html).toMatch(/data-id="4" aria-pressed="false" disabled/);
     expect(html).toContain('+7 936 147-23-24 — Иван');
+    // Плитка мессенджера залита цветом канала целиком, а не только значок.
+    expect(html).toMatch(/class="rfm-opt rfm-opt-(wa|tg|max|vk|av)"/);
   });
 
   it('отправка: без текста — подсказка, с текстом — запрос и сообщение об успехе', async () => {
