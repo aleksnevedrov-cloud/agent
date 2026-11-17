@@ -152,6 +152,6 @@ describe('вкладка «Правила цен»', () => {
     await click('Сохранить');
     await flush();
     const put = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/pricing'));
-    expect(JSON.parse(put!.data!).services).toEqual([{ code: 'svc_1', name: '', unit: 'fixed', price: 0, basePrice: 0 }]);
+    expect(JSON.parse(put!.data!).services).toEqual([{ code: 'svc_1', name: '', unit: 'fixed', price: 0, basePrice: 0, freeFromDoors: null }]);
   });
 });

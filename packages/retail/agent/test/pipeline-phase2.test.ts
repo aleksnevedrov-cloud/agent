@@ -83,7 +83,7 @@ describe('подсказки', () => {
     const t = await setup([text('Подскажите клиенту модель Турин 1.')], {}, { events: [{ id: 'e', type: 'outgoing_chat_message', entity_id: 0, created_by: 5, created_at: 0 }] });
     await t.dialog.enqueue(ACC, lead, 'А белые есть?', null);
     expect((await t.pipeline.processLead(ACC, lead)).status).toBe('hinted');
-    expect(toolNames(t.llm.requests[0]!)).toEqual(['catalog_search', 'catalog_get_product', 'knowledge_search', 'crm_get_context', 'price_calculate']);
+    expect(toolNames(t.llm.requests[0]!)).toEqual(['catalog_search', 'catalog_get_product', 'door_components', 'knowledge_search', 'crm_get_context', 'price_calculate']);
     expect((await t.suggestions.listForLead(ACC, lead))[0]).toMatchObject({ kind: 'hint', text: 'Подскажите клиенту модель Турин 1.' });
     expect((await t.dialog.state(ACC, lead)).paused).toBe(true);
   });

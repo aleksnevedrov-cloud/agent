@@ -34,6 +34,8 @@ export const serviceSchema = z
     unit: z.enum(['fixed', 'per_door', 'per_km', 'per_door_per_floor']),
     price: z.number().min(0),
     basePrice: z.number().min(0).default(0),
+    /** С какого количества дверей в заказе услуга бесплатна (замер от 4 дверей); null — всегда платная. */
+    freeFromDoors: z.number().int().min(1).nullable().default(null),
   })
   .strict();
 

@@ -9,6 +9,8 @@ export interface DoorInput {
   widthMm?: number;
   heightMm?: number;
   qty: number;
+  /** Цена размера из карточки двери на сайте: price null — такого размера на сайте нет. */
+  cardSize?: { price: number | null; label: string | null };
 }
 
 export interface CalcInput {
@@ -19,7 +21,7 @@ export interface CalcInput {
   extras: { code: string; qty: number }[];
   /** Фурнитура и прочие товары из каталога. */
   products: { productId: string; name: string; price: number | null; qty: number }[];
-  services: { code: string; km?: number; floor?: number }[];
+  services: { code: string; km?: number; floor?: number; qty?: number }[];
   /** Комплектующие из карточки двери на сайте (RFD-AI-AGENT-KOMPLEKTUYUWIE).
    *  Если список не пуст, комплектующие из «Правил цен» не участвуют. */
   cardComponents?: { name: string; price: number; qty?: number }[];
@@ -79,7 +81,13 @@ export function calculate(rules: PricingRules, input: CalcInput): CalcResult {
     const nonStandard =
       (d.widthMm !== undefined && !standardWidths.includes(d.widthMm)) ||
       (d.heightMm !== undefined && !standardHeights.includes(d.heightMm));
-    if (d.price === null) {
+    if (d.cardSize) {
+      add(
+        d.cardSize.price === null
+          ? { name: `${d.name}${size}`, article: d.productId, qty: d.qty, price: null, basis: 'такого размера нет на сайте — цену считает менеджер' }
+          : { name: `${d.name}${size}`, article: d.productId, qty: d.qty, price: d.cardSize.price, basis: `цена размера ${d.cardSize.label ?? ''} из карточки двери`.replace('  ', ' ') },
+      );
+    } else if (d.price === null) {
       add({ name: `${d.name}${size}`, article: d.productId, qty: d.qty, price: null, basis: 'нет цены в каталоге' });
     } else if (nonStandard && nonStandardMarkupPct === null) {
       add({ name: `${d.name}${size}`, article: d.productId, qty: d.qty, price: null, basis: 'нестандартный размер — цену считает менеджер' });
@@ -154,12 +162,17 @@ export function calculate(rules: PricingRules, input: CalcInput): CalcResult {
       missing.push(`неизвестная услуга «${s.code}»`);
       continue;
     }
+    if (svc.freeFromDoors !== null && doorsCount >= svc.freeFromDoors) {
+      add({ name: svc.name, article: null, qty: 1, price: 0, basis: `бесплатно при заказе от ${svc.freeFromDoors} дверей` });
+      continue;
+    }
+    const qty = s.qty !== undefined && s.qty > 0 ? round2(s.qty) : undefined;
     switch (svc.unit) {
       case 'fixed':
-        add({ name: svc.name, article: null, qty: 1, price: svc.price, basis: 'услуга, за заказ' });
+        add({ name: svc.name, article: null, qty: qty ?? 1, price: svc.price, basis: 'услуга, за заказ' });
         break;
       case 'per_door':
-        add({ name: svc.name, article: null, qty: doorsCount || 1, price: svc.price, basis: 'услуга, за дверь' });
+        add({ name: svc.name, article: null, qty: qty ?? (doorsCount || 1), price: svc.price, basis: qty ? 'услуга, по количеству' : 'услуга, за дверь' });
         break;
       case 'per_km': {
         if (s.km === undefined) {

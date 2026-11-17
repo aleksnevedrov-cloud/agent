@@ -45,10 +45,60 @@ describe('price_calculate', () => {
     expect(r.calculation).toBeDefined();
   });
 
-  it('без правил — не считает и просит менеджера', async () => {
-    const r = await priceCalculate.run({ ...ctx, pricing: null }, { doors: [{ product_id: '1001', qty: 1 }] });
-    expect(r.empty).toBe(true);
-    expect(JSON.stringify(r.content)).toMatch(/менеджер/);
+  it('без правил — полотна и комплектующие карточки всё равно считаются', async () => {
+    const r = await priceCalculate.run(
+      { ...ctx, pricing: null },
+      { doors: [{ product_id: '1001', qty: 2 }], card_components: [{ name: 'Коробка Стандартная', price_rub: 1156, qty: 5 }] },
+    );
+    expect(r.empty).toBeFalsy();
+    const c = r.content as { total_rub: number; complete: boolean };
+    expect(c.total_rub).toBe(14900 * 2 + 1156 * 5);
+    expect(c.complete).toBe(true);
+  });
+
+  it('цена полотна по размеру — из карточки; размера нет на сайте — менеджер', async () => {
+    const components = {
+      forProduct: async () => [
+        { group: 'Размер полотна', name: '2000*800', price: 16000 },
+        { group: 'Размер полотна', name: '2600*800', price: 21500 },
+        { group: 'Коробка', name: 'Стандартная', price: 1156 },
+      ],
+    };
+    const r = await priceCalculate.run(
+      { ...ctx, pricing: null, components },
+      {
+        doors: [
+          { product_id: '1001', width_mm: 800, height_mm: 2600, qty: 1 },
+          { product_id: '1001', width_mm: 800, height_mm: 3000, qty: 1 },
+        ],
+      },
+    );
+    const c = r.content as { lines: { name: string; price_rub: number | null; basis: string }[]; total_rub: number; complete: boolean; price_unknown_for: string[] };
+    expect(c.lines[0]).toMatchObject({ price_rub: 21500 });
+    expect(c.lines[0]?.basis).toMatch(/2600\*800 из карточки/);
+    expect(c.lines[1]).toMatchObject({ price_rub: null });
+    expect(c.lines[1]?.basis).toMatch(/нет на сайте/);
+    expect(c.total_rub).toBe(21500);
+    expect(c.complete).toBe(false);
+  });
+
+  it('услуги: количество не на все двери и бесплатный замер от 4 дверей', async () => {
+    const withSvc = pricingRulesSchema.parse({
+      services: [
+        { code: 'lock_cylinder', name: 'Врезка замка под цилиндр', unit: 'per_door', price: 900 },
+        { code: 'measure', name: 'Вызов замерщика', unit: 'per_km', price: 50, basePrice: 2000, freeFromDoors: 4 },
+      ],
+    });
+    const two = await priceCalculate.run(
+      { ...ctx, pricing: withSvc },
+      { doors: [{ product_id: '1001', qty: 2 }], services: [{ code: 'lock_cylinder', qty: 1 }, { code: 'measure', km: 10 }] },
+    );
+    const c2 = two.content as { lines: { name: string; qty: number; total_rub: number | null }[] };
+    expect(c2.lines.find((l) => l.name.startsWith('Врезка'))).toMatchObject({ qty: 1, total_rub: 900 });
+    expect(c2.lines.find((l) => l.name.startsWith('Вызов'))).toMatchObject({ total_rub: 2500 });
+    const four = await priceCalculate.run({ ...ctx, pricing: withSvc }, { doors: [{ product_id: '1001', qty: 4 }], services: [{ code: 'measure', km: 10 }] });
+    const c4 = four.content as { lines: { name: string; total_rub: number | null }[] };
+    expect(c4.lines.find((l) => l.name.startsWith('Вызов'))).toMatchObject({ total_rub: 0 });
   });
 
   it('неизвестный товар — ошибка', async () => {

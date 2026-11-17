@@ -158,7 +158,7 @@ export const REASON_TEXT: Record<HandoffReason, string> = {
 type Delivery = 'send' | 'draft' | 'hint';
 
 /** В режиме подсказок AI ничего не меняет в CRM — только читает. */
-const READ_ONLY = new Set(['catalog_search', 'catalog_get_product', 'knowledge_search', 'crm_get_context', 'price_calculate']);
+const READ_ONLY = new Set(['catalog_search', 'catalog_get_product', 'door_components', 'knowledge_search', 'crm_get_context', 'price_calculate']);
 
 /** Сколько смотреть назад, если AI ещё не отвечал в сделке. */
 const MANAGER_LOOKBACK_MS = 7 * 24 * 3600_000;

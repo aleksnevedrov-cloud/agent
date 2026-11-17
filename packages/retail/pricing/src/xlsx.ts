@@ -6,7 +6,7 @@ import { pricingRulesSchema, type PricingRules } from './rules.ts';
  *  «Размеры»: Параметр | Значение
  *  «Комплектующие»: Код | Наименование | Шт. на дверь | В комплекте | Округлять вверх | Серия | Цена
  *    (несколько строк с одним кодом — цены по сериям; строка без серии — цена по умолчанию)
- *  «Услуги»: Код | Наименование | Тип | Цена | Базовая цена
+ *  «Услуги»: Код | Наименование | Тип | Цена | Базовая цена | Бесплатно от (дверей)
  */
 const UNIT_RU: Record<string, PricingRules['services'][number]['unit']> = {
   'за заказ': 'fixed',
@@ -94,12 +94,14 @@ export async function importRulesXlsx(buf: ArrayBuffer | Uint8Array): Promise<Pr
   });
   raw.components = [...components.values()];
 
-  raw.services = rows(wb.getWorksheet('Услуги')).map(([code = '', name = '', unit = '', price = '', base = '']) => ({
+  raw.services = rows(wb.getWorksheet('Услуги')).map(([code = '', name = '', unit = '', price = '', base = '', freeFrom = '']) => ({
     code,
     name,
     unit: UNIT_RU[unit.toLowerCase()] ?? unit,
     price: num(price),
     basePrice: num(base) ?? 0,
+    // С какого количества дверей услуга бесплатна (замер от 4 дверей); пусто — всегда платная.
+    freeFromDoors: num(freeFrom),
   }));
 
   if (!components.size && !(raw.services as unknown[]).length) problems.push('Нет ни одной строки на листах «Комплектующие» и «Услуги»');
@@ -128,8 +130,8 @@ export async function exportRulesXlsx(r: PricingRules): Promise<Uint8Array> {
     for (const p of c.prices) comp.addRow([...base, p.series, p.price]);
   }
   const svc = wb.addWorksheet('Услуги');
-  svc.addRow(['Код', 'Наименование', 'Тип (за заказ / за дверь / за км / за дверь за этаж)', 'Цена', 'Базовая цена']);
-  for (const s of r.services) svc.addRow([s.code, s.name, UNIT_TO_RU[s.unit], s.price, s.basePrice]);
+  svc.addRow(['Код', 'Наименование', 'Тип (за заказ / за дверь / за км / за дверь за этаж)', 'Цена', 'Базовая цена', 'Бесплатно от (дверей)']);
+  for (const s of r.services) svc.addRow([s.code, s.name, UNIT_TO_RU[s.unit], s.price, s.basePrice, s.freeFromDoors ?? '']);
   for (const ws of [sizes, comp, svc]) {
     ws.getRow(1).font = { bold: true };
     ws.columns.forEach((col) => (col.width = 24));

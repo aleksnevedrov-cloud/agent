@@ -116,3 +116,34 @@ describe('XLSX', () => {
     await expect(importRulesXlsx(empty)).rejects.toThrow(/Нет ни одной строки/);
   });
 });
+
+describe('пресет услуг РФ-Двери (RFD-AI-AGENT-RASCHET)', () => {
+  it('проходит схему, коды уникальны, замер бесплатен от 4 дверей', async () => {
+    const { RF_DVERI_SERVICES, withPresetServices, emptyRules } = await import('../src/index.ts');
+    const r = withPresetServices(emptyRules());
+    expect(r.services).toHaveLength(RF_DVERI_SERVICES.length);
+    expect(new Set(r.services.map((s) => s.code)).size).toBe(RF_DVERI_SERVICES.length);
+    expect(r.services.find((s) => s.code === 'measure')).toMatchObject({ unit: 'per_km', price: 50, basePrice: 2000, freeFromDoors: 4 });
+  });
+
+  it('повторное применение не плодит услуги, чужие услуги и комплектующие остаются', async () => {
+    const { withPresetServices, emptyRules } = await import('../src/index.ts');
+    const base = pricingRulesSchema.parse({
+      components: [{ code: 'box', name: 'Коробка', qtyPerDoor: 2.5, defaultPrice: 1000 }],
+      services: [{ code: 'delivery', name: 'Доставка', unit: 'fixed', price: 1500 }, { code: 'measure', name: 'старый замер', unit: 'fixed', price: 1 }],
+    });
+    const once = withPresetServices(base);
+    const twice = withPresetServices(once);
+    expect(twice.services).toEqual(once.services);
+    expect(once.components).toEqual(base.components);
+    expect(once.services.find((s) => s.code === 'delivery')).toMatchObject({ price: 1500 });
+    expect(once.services.find((s) => s.code === 'measure')).toMatchObject({ basePrice: 2000 });
+    void emptyRules;
+  });
+
+  it('XLSX: колонка «бесплатно от дверей» сохраняется при экспорте и импорте', async () => {
+    const { withPresetServices, emptyRules } = await import('../src/index.ts');
+    const r = withPresetServices(emptyRules());
+    expect(await importRulesXlsx(await exportRulesXlsx(r))).toEqual(r);
+  });
+});

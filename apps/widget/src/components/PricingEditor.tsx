@@ -145,12 +145,13 @@ function Editor({ api, initial, onSaved }: { api: WidgetApi; initial: PricingRul
           </select>
           <NumberInput value={v.price} min={0} placeholder="цена" onChange={(x) => setSvc(i, { price: x ?? 0 })} />
           {v.unit === 'per_km' && <NumberInput value={v.basePrice} min={0} placeholder="база" onChange={(x) => setSvc(i, { basePrice: x ?? 0 })} />}
+          <NumberInput value={v.freeFromDoors} min={1} nullable placeholder="бесплатно от N дверей" onChange={(x) => setSvc(i, { freeFromDoors: x && x > 0 ? Math.round(x) : null })} />
           <button type="button" style={s.buttonGhost} onClick={() => setR({ ...r, services: r.services.filter((_, k) => k !== i) })}>
             Удалить
           </button>
         </div>
       ))}
-      <button type="button" style={s.buttonGhost} onClick={() => setR({ ...r, services: [...r.services, { code: `svc_${r.services.length + 1}`, name: '', unit: 'fixed', price: 0, basePrice: 0 }] })}>
+      <button type="button" style={s.buttonGhost} onClick={() => setR({ ...r, services: [...r.services, { code: `svc_${r.services.length + 1}`, name: '', unit: 'fixed', price: 0, basePrice: 0, freeFromDoors: null }] })}>
         + Услуга
       </button>
 

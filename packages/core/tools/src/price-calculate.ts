@@ -1,4 +1,5 @@
-import { calculate, isConfigured, type CalcInput } from '@retail/pricing';
+import { CANVAS_GROUP, parseSize } from '@retail/catalog';
+import { calculate, emptyRules, isConfigured, type CalcInput } from '@retail/pricing';
 import { z } from 'zod';
 import { defineTool } from './types.ts';
 
@@ -76,7 +77,12 @@ export const priceCalculate = defineTool({
         description: 'Услуги по коду; для доставки за МКАД — km, для подъёма и заноса — floor.',
         items: {
           type: 'object',
-          properties: { code: { type: 'string' }, km: { type: 'number' }, floor: { type: 'integer' } },
+          properties: {
+            code: { type: 'string' },
+            km: { type: 'number' },
+            floor: { type: 'integer' },
+            qty: { type: 'number', description: 'Количество, если услуга нужна не на все двери (например, врезка замка на 2 двери из 4) или в погонных метрах.' },
+          },
           required: ['code'],
           additionalProperties: false,
         },
@@ -95,14 +101,13 @@ export const priceCalculate = defineTool({
       .max(30)
       .optional(),
     services: z
-      .array(z.object({ code: z.string().max(40), km: z.number().min(0).max(1000).optional(), floor: z.number().int().min(0).max(100).optional() }))
+      .array(z.object({ code: z.string().max(40), km: z.number().min(0).max(1000).optional(), floor: z.number().int().min(0).max(100).optional(), qty: z.number().min(0.1).max(1000).optional() }))
       .max(20)
       .optional(),
   }),
   async run(ctx, i) {
-    if (!ctx.pricing || !isConfigured(ctx.pricing)) {
-      return { empty: true, content: { error: 'Правила расчёта не настроены. Итоговую сумму посчитает менеджер.' } };
-    }
+    // Полотна и комплектующие из карточки считаются и без «Правил цен»; правила нужны для услуг.
+    const rules = ctx.pricing ?? emptyRules();
     const notFound: string[] = [];
     const doors: CalcInput['doors'] = [];
     for (const d of i.doors) {
@@ -111,7 +116,25 @@ export const priceCalculate = defineTool({
         notFound.push(d.product_id);
         continue;
       }
-      doors.push({ productId: p.id, name: p.name, category: p.category, price: p.price, widthMm: d.width_mm, heightMm: d.height_mm, qty: d.qty });
+      let cardSize: CalcInput['doors'][number]['cardSize'];
+      if (d.width_mm && d.height_mm && ctx.components && p.url) {
+        // Цена полотна по размеру - из торговых предложений карточки (поле «Размер полотна»).
+        try {
+          const sizes = (await ctx.components.forProduct(ctx.accountId, String(p.id ?? d.product_id), p.url)).filter(
+            (x) => x.group === CANVAS_GROUP,
+          );
+          if (sizes.length) {
+            const hit = sizes.find((x) => {
+              const s = parseSize(x.name);
+              return s !== null && s.heightMm === d.height_mm && s.widthMm === d.width_mm;
+            });
+            cardSize = hit ? { price: hit.price, label: hit.name } : { price: null, label: null };
+          }
+        } catch {
+          // карточка не прочитана - считаем по каталогу и правилам, как раньше
+        }
+      }
+      doors.push({ productId: p.id, name: p.name, category: p.category, price: p.price, widthMm: d.width_mm, heightMm: d.height_mm, qty: d.qty, cardSize });
     }
     const products: CalcInput['products'] = [];
     for (const x of i.products ?? []) {
@@ -122,7 +145,7 @@ export const priceCalculate = defineTool({
     if (notFound.length) return { empty: true, content: { error: `Товары не найдены в каталоге: ${notFound.join(', ')}` } };
 
     const cardComponents = (i.card_components ?? []).map((c) => ({ name: c.name, price: c.price_rub, qty: c.qty }));
-    const r = calculate(ctx.pricing, {
+    const r = calculate(rules, {
       doors,
       kit: i.kit ?? true,
       extras: i.extras ?? [],
@@ -135,7 +158,7 @@ export const priceCalculate = defineTool({
       total_rub: r.total,
       complete: r.complete,
       price_unknown_for: r.missing,
-      disclaimer: ctx.pricing.disclaimer,
+      disclaimer: rules.disclaimer,
     };
     return {
       content,
@@ -147,7 +170,9 @@ export const priceCalculate = defineTool({
 
 /** Коды доборов и услуг — для переменной части системной инструкции. */
 export function pricingCodesHint(rules: import('@retail/pricing').PricingRules | null | undefined): string | null {
-  if (!rules || !isConfigured(rules)) return 'Правила расчёта не настроены: итоговые суммы не называйте, расчёт делает менеджер.';
+  if (!rules || !isConfigured(rules)) {
+    return 'Услуги (монтаж, замер, доставка) в правилах цен не настроены: их стоимость не называйте, её считает менеджер. Полотна и комплектующие считайте price_calculate.';
+  }
   const extras = rules.components.filter((c) => !c.inKit || c.qtyPerDoor === 0).map((c) => `${c.code} — ${c.name}`);
   const services = rules.services.map((s) => `${s.code} — ${s.name}`);
   return [

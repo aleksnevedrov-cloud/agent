@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CANVAS_GROUP } from '@retail/catalog';
 import { defineTool } from './types.ts';
 
 /**
@@ -37,11 +38,20 @@ export const doorComponents = defineTool({
       };
     }
     const groups: Record<string, { name: string; price: number }[]> = {};
+    const sizes: { size: string; price: number }[] = [];
     for (const it of items) {
-      (groups[it.group] ??= []).push({ name: it.name, price: it.price });
+      if (it.group === CANVAS_GROUP) sizes.push({ size: it.name, price: it.price });
+      else (groups[it.group] ??= []).push({ name: it.name, price: it.price });
     }
+    const content: Record<string, unknown> = { product: p.name, groups };
+    if (sizes.length) {
+      content.canvas_sizes = sizes;
+      content.canvas_note =
+        'Цена полотна зависит от размера (высота*ширина, мм). В price_calculate передавайте width_mm и height_mm - цена размера подставится сама; размера нет в списке - его считает менеджер.';
+    }
+    if (!Object.keys(groups).length) content.note = 'У этой двери комплектующие на сайте не указаны';
     return {
-      content: { product: p.name, groups },
+      content,
       sources: [{ type: 'product', id: p.id, title: p.name, url: p.url }],
     };
   },
