@@ -589,7 +589,14 @@ const CARD_CSS = `
 .rfm-opt[disabled]{background:#fff;border-color:#cfd7df}
 .rfm-modal select,.rfm-modal textarea{width:100%;border:1px solid #cfd7df;border-radius:6px;font:inherit;padding:7px 10px}
 .rfm-modal textarea{min-height:90px;resize:vertical}
-.rfm-actions{display:flex;justify-content:flex-end;gap:8px}
+.rfm-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:4px}
+/* Кнопки окна «Написать»: заметные, в цвете; !important — стили amo сбрасывают оформление кнопок. */
+.rfm-actions .rfm-btn{height:38px!important;min-width:120px!important;padding:0 20px!important;border-radius:8px!important;font-size:14px!important;font-weight:600!important;line-height:36px!important;border:1px solid transparent!important;cursor:pointer!important;box-shadow:0 1px 2px rgba(0,0,0,.08)!important}
+.rfm-actions .rfm-btn:not(.rfm-btn-primary){background:#f1f3f5!important;border-color:#cfd7df!important;color:#2e3640!important}
+.rfm-actions .rfm-btn:not(.rfm-btn-primary):hover{background:#e4e8ec!important}
+.rfm-actions .rfm-btn-primary{background:#1f8f3a!important;border-color:#1f8f3a!important;color:#fff!important}
+.rfm-actions .rfm-btn-primary:hover{background:#19782f!important}
+.rfm-actions .rfm-btn[disabled]{opacity:.7!important;cursor:default!important}
 .rfm-err{background:#fdecec;color:#a12b2b;border-radius:8px;padding:8px 10px;font-size:13px}
 .rfm-note{font-size:12px;color:#8a96a3}
 `;
