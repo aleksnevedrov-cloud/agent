@@ -443,7 +443,7 @@ async function runSandbox(
     settings,
     history: messages.slice(0, -1),
     incoming: [last.text],
-    ctx: { accountId: p.accountId, catalog: deps.catalog, knowledge: deps.knowledge, crm, memory, pricing: rules, tasks: settings.tasks },
+    ctx: { accountId: p.accountId, catalog: deps.catalog, knowledge: deps.knowledge, crm, memory, pricing: rules, tasks: settings.tasks, components: deps.doorComponents ?? null },
     tools: PHASE2_TOOLS,
     dynamic: { pricing: pricingCodesHint(rules), messenger: messenger?.text ?? null },
     route,
