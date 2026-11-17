@@ -207,7 +207,7 @@ export function createDeps(env: Env, overrides: DepsOverrides = {}): Deps {
         const cached = await repo.get(accountId, productId, 24);
         if (cached) return cached;
         try {
-          const items = await fetchDoorComponents(url);
+          const items = await fetchDoorComponents(url, fetchImpl);
           await repo.save(accountId, productId, url, items);
           return items;
         } catch (err) {
