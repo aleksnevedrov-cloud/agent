@@ -41,8 +41,11 @@ export class ChannelWorkers {
         concurrency: this.o.concurrency ?? CHANNEL_CONCURRENCY,
       });
       w.on('failed', (job, err) => this.o.log.warn({ job: job?.id, name: job?.name, channelId: id, attempts: job?.attemptsMade, err: err.message }, 'задача канала не выполнена'));
+      w.on('error', (err) => this.o.log.warn({ channelId: id, err: err.message }, 'исполнитель канала: ошибка соединения'));
       this.workers.set(id, w);
     }
+    // Дожидаемся соединения исполнителей: задачи, поставленные сразу после сверки, не должны ждать.
+    await Promise.all([...this.workers.values()].map((w) => w.waitUntilReady().catch(() => undefined)));
   }
 
   private async handle(job: Job): Promise<unknown> {
