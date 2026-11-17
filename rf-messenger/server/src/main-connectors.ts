@@ -62,7 +62,7 @@ const bridge = new Bridge({
   connector: (id) => host.get(id),
   amoDomains: env.AMO_ALLOWED_DOMAINS,
   log,
-  typingMs: 1200,
+  typingMs: env.OUTBOUND_TYPING_MS,
   rest: core.rest,
   events: new RedisChatEvents(core.redis),
 });

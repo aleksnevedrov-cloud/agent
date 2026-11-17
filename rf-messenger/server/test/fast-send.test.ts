@@ -215,6 +215,36 @@ describe('4.2 изоляция каналов (настоящие очереди
   });
 });
 
+describe('4.5 и п. 6: пауза для личных аккаунтов (вариант 2)', () => {
+  it('по умолчанию пауза 0,3–1 с и «печатает» без ожидания; боты без паузы; прежние значения задаются в .env', async () => {
+    const { loadEnv } = await import('../src/config.ts');
+    const { testEnv } = await import('./helpers.ts');
+    const env = testEnv();
+    expect([env.OUTBOUND_PAUSE_MIN_MS, env.OUTBOUND_PAUSE_MAX_MS, env.OUTBOUND_TYPING_MS]).toEqual([300, 1000, 0]);
+    const old = testEnv({ OUTBOUND_PAUSE_MIN_MS: '1000', OUTBOUND_PAUSE_MAX_MS: '3000', OUTBOUND_TYPING_MS: '1200' });
+    expect([old.OUTBOUND_PAUSE_MIN_MS, old.OUTBOUND_PAUSE_MAX_MS, old.OUTBOUND_TYPING_MS]).toEqual([1000, 3000, 1200]);
+    expect(() => loadEnv({ ...process.env, ...Object.fromEntries(Object.entries(testEnv()).map(([k, v]) => [k, String(v)])), OUTBOUND_PAUSE_MIN_MS: '500', OUTBOUND_PAUSE_MAX_MS: '100' })).toThrow(/меньше/);
+    // WhatsApp: «печатает» отправлен, но сообщение ушло сразу (typingMs = 0).
+    const { RedisPacer } = await import('../src/queue.ts');
+    const pacer = new RedisPacer(redis, 300, 1000, () => 0);
+    await redis.del(`rfm:pace:424242`);
+    for (let i = 0; i < 3; i++) {
+      const delay = (await pacer.reserve(424242)) - i * 0; // слоты идут подряд: каждый на 0,3–1 с позже предыдущего
+      expect(delay).toBeGreaterThanOrEqual(300 * (i + 1));
+      expect(delay).toBeLessThanOrEqual(1000 * (i + 1));
+    }
+    await t.db.query("UPDATE channels SET kind = 'whatsapp' WHERE id = $1", [t.channel.id]);
+    const chat = await clientChat();
+    const b = new Bridge({ ...t.bridgeDeps, rest, typingMs: 0 });
+    const { messageIds } = await b.queueFromWindow(windowInput(chat.id));
+    const started = Date.now();
+    await b.deliverToChannel(messageIds[0]!, true, null);
+    expect(t.connector.typed).toEqual(['42']);
+    expect(t.connector.sent).toHaveLength(1);
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+});
+
 describe('4.9 и 4.10: уведомления, сводка, замеры', () => {
   const channel = (over: Partial<import('../src/store.ts').Channel> = {}) =>
     ({ id: 3, accountId: ACCOUNT, kind: 'vk', title: 'РФ-Двери', externalId: '1', status: 'connected', statusDetail: null, credentials: '', createdAt: new Date(), updatedAt: new Date(), ...over }) as import('../src/store.ts').Channel;

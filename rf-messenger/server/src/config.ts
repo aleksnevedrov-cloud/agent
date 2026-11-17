@@ -44,9 +44,17 @@ export const envSchema = z.object({
   FILE_URL_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   MAX_FILE_MB: z.coerce.number().int().min(1).max(200).default(50),
 
-  /** Пауза между исходящими в один чат (раздел 6 ТЗ). */
-  OUTBOUND_PAUSE_MIN_MS: z.coerce.number().int().min(0).default(1000),
-  OUTBOUND_PAUSE_MAX_MS: z.coerce.number().int().min(0).default(3000),
+  /**
+   * Пауза перед ответом из amoCRM в один чат — только для личных аккаунтов (WhatsApp по QR, Telegram личный,
+   * MAX по номеру). Решение заказчика от 17.11 (ТЗ п. 6, вариант 2): 0,3–1 с вместо 1–3 с.
+   */
+  OUTBOUND_PAUSE_MIN_MS: z.coerce.number().int().min(0).default(300),
+  OUTBOUND_PAUSE_MAX_MS: z.coerce.number().int().min(0).default(1000),
+  /**
+   * Сколько ждать после «печатает…» перед отправкой в личных аккаунтах, мс. Решение заказчика от 17.11 (вариант 2):
+   * «печатает» не задерживает отправку — 0 (индикатор отправляется, но сообщение уходит сразу).
+   */
+  OUTBOUND_TYPING_MS: z.coerce.number().int().min(0).max(10_000).default(0),
 
   /** HTTP(S)-прокси для Telegram и WhatsApp (http://логин:пароль@хост:порт). Пусто — напрямую. amoCRM всегда напрямую. */
   MESSENGER_PROXY_URL: proxyUrl,
