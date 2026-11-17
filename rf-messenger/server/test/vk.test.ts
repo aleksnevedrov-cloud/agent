@@ -84,16 +84,22 @@ describe('VK: отправка и подключение', () => {
     expect(calls.map((x) => new URL(x.url).pathname)).toEqual(['/method/photos.getMessagesUploadServer', '/upload', '/method/photos.saveMessagesPhoto', '/method/messages.send']);
   });
 
-  it('901 (клиент запретил сообщения) — постоянная ошибка; 6 и 10 — повтор', async () => {
+  it('901 (клиент запретил сообщения) — постоянная ошибка; 6 и 10 — один повтор (п. 4.3); random_id из ключа сообщения', async () => {
     const denied = new VkConnector('t', 1, { fetch: vkFetch([], () => vkErr(901)), sleep: noSleep });
     await expect(denied.send({ externalChatId: '42', text: 'x', file: null, replyToExternalId: null })).rejects.toBeInstanceOf(PermanentSendError);
     let n = 0;
     const calls: Call[] = [];
-    const flaky = new VkConnector('t', 1, { fetch: vkFetch(calls, () => (n++ === 0 ? vkErr(6) : n === 2 ? vkErr(10) : vkJson(7))), retry: { sleep: noSleep }, sleep: noSleep });
-    expect((await flaky.send({ externalChatId: '42', text: 'x', file: null, replyToExternalId: null })).externalMessageId).toBe('7');
-    expect(calls).toHaveLength(3);
-    // random_id одинаков во всех попытках: VK не создаст дубль.
+    const flaky = new VkConnector('t', 1, { fetch: vkFetch(calls, () => (n++ === 0 ? vkErr(6) : vkJson(7))), retry: { sleep: noSleep }, sleep: noSleep });
+    expect((await flaky.send({ externalChatId: '42', text: 'x', file: null, replyToExternalId: null, idempotencyKey: 'rfm-m77' })).externalMessageId).toBe('7');
+    expect(calls).toHaveLength(2);
+    // random_id одинаков во всех попытках и выводится из ключа сообщения: повтор задачи не создаст дубль у клиента.
     expect(new Set(calls.map((x) => (x.params as Record<string, string>).random_id)).size).toBe(1);
+    const again: Call[] = [];
+    await new VkConnector('t', 1, { fetch: vkFetch(again, () => vkJson(8)), sleep: noSleep }).send({ externalChatId: '42', text: 'x', file: null, replyToExternalId: null, idempotencyKey: 'rfm-m77' });
+    expect((again[0]!.params as Record<string, string>).random_id).toBe((calls[0]!.params as Record<string, string>).random_id);
+    // Второй сбой подряд — ошибка, а не долгие повторы.
+    let k = 0;
+    await expect(new VkConnector('t', 1, { fetch: vkFetch([], () => (k++ < 2 ? vkErr(10) : vkJson(7))), retry: { sleep: noSleep }, sleep: noSleep }).send({ externalChatId: '42', text: 'x', file: null, replyToExternalId: null })).rejects.toThrow(/VK 10/);
   });
 
   it('Long Poll: ключ и сервер, обработка событий, failed=2 — новый сервер; код 5 — ошибка ключа', async () => {

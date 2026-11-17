@@ -63,6 +63,15 @@ server {
         # Перезаписываем, а не дописываем: сервис доверяет ровно одному прокси (trustProxy).
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
+        # ТЗ 17.11 п. 4.4: nginx не должен обрывать запрос раньше сервиса. API отвечает сразу (≤ 1 с),
+        # но SSE-поток окна переписки живёт долго: без этих строк nginx рвёт его через 60 с без CORS-заголовков,
+        # и виджет показывает «Сервис мессенджеров недоступен».
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 60s;
+        proxy_buffering off;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
     }
 }
 ```

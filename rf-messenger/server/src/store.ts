@@ -65,6 +65,22 @@ export interface Message {
   /** Загруженная история: в ленту amoCRM не передаётся. */
   fromHistory: boolean;
   createdAt: Date;
+  /** Момент фактической отправки в мессенджер (исходящие). */
+  sentAt: Date | null;
+  /** Вложение входящего, переданное в amo отдельным сообщением после скачивания. */
+  amojoMediaMsgid: string | null;
+}
+
+/** Сводка исходящих по каналу (п. 4.10). */
+export interface OutboundStat {
+  channelId: number;
+  kind: ChannelKind;
+  total: number;
+  sent: number;
+  failed: number;
+  queued: number;
+  p50Ms: number | null;
+  p95Ms: number | null;
 }
 
 export interface Template {
@@ -152,6 +168,8 @@ const messageRow = (r: any): Message => ({
   senderUserId: r.sender_user_id === null || r.sender_user_id === undefined ? null : Number(r.sender_user_id),
   fromHistory: Boolean(r.from_history),
   createdAt: r.created_at,
+  sentAt: r.sent_at ?? null,
+  amojoMediaMsgid: r.amojo_media_msgid ?? null,
 });
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -667,8 +685,65 @@ export class Store {
     await this.db.query("UPDATE messages SET amojo_msgid = $2, status = 'synced', updated_at = now() WHERE id = $1", [id, amojoMsgid]);
   }
 
-  async markSent(id: number, externalId: string): Promise<void> {
-    await this.db.query("UPDATE messages SET external_id = $2, status = 'sent', error = NULL, updated_at = now() WHERE id = $1", [id, externalId]);
+  async markSent(id: number, externalId: string): Promise<Message | null> {
+    const r = await this.db.query("UPDATE messages SET external_id = $2, status = 'sent', error = NULL, sent_at = now(), updated_at = now() WHERE id = $1 RETURNING *", [id, externalId]);
+    return r.rows[0] ? messageRow(r.rows[0]) : null;
+  }
+
+  async markMediaSynced(id: number, amojoMsgid: string): Promise<void> {
+    await this.db.query('UPDATE messages SET amojo_media_msgid = $2, updated_at = now() WHERE id = $1', [id, amojoMsgid]);
+  }
+
+  /**
+   * Исходящее из окна переписки или раздела до отправки (п. 4.1): в очереди, без id в мессенджере.
+   * external_id появится после отправки (markSent).
+   */
+  async insertOutboundPending(m: {
+    chat: Chat;
+    kind: Message['kind'];
+    text: string;
+    fileId: string | null;
+    replyToMessageId: number | null;
+    senderName: string | null;
+    senderUserId: number | null;
+  }): Promise<Message> {
+    const r = await this.db.query(
+      `INSERT INTO messages (account_id, chat_id, direction, source, kind, text, file_id, status, reply_to_message_id, sender_name, sender_user_id)
+       VALUES ($1, $2, 'out', 'phone', $3, $4, $5, 'queued', $6, $7, $8) RETURNING *`,
+      [m.chat.accountId, m.chat.id, m.kind, m.text, m.fileId, m.replyToMessageId, m.senderName, m.senderUserId],
+    );
+    return messageRow(r.rows[0]);
+  }
+
+  /**
+   * Исходящие за период по каналам: всего, отправлено, ошибок, время «принято → отправлено» (медиана и 95-й
+   * процентиль, мс). Без текстов и номеров (п. 4.10).
+   */
+  async outboundStats(sinceMs: number, accountId: number | null = null): Promise<OutboundStat[]> {
+    const r = await this.db.query(
+      `SELECT c.channel_id, ch.kind, count(*)::int AS total,
+              count(*) FILTER (WHERE m.status IN ('sent', 'delivered', 'read'))::int AS sent,
+              count(*) FILTER (WHERE m.status = 'failed')::int AS failed,
+              count(*) FILTER (WHERE m.status = 'queued')::int AS queued,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (m.sent_at - m.created_at)) * 1000) FILTER (WHERE m.sent_at IS NOT NULL) AS p50,
+              percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM (m.sent_at - m.created_at)) * 1000) FILTER (WHERE m.sent_at IS NOT NULL) AS p95
+       FROM messages m JOIN chats c ON c.id = m.chat_id JOIN channels ch ON ch.id = c.channel_id
+       WHERE m.direction = 'out' AND m.source IN ('amo', 'phone') AND m.external_id IS DISTINCT FROM '' AND NOT m.from_history
+         AND m.created_at > to_timestamp($1::double precision / 1000) AND ($2::bigint IS NULL OR m.account_id = $2)
+         AND (m.sent_at IS NOT NULL OR m.status IN ('queued', 'failed'))
+       GROUP BY c.channel_id, ch.kind ORDER BY c.channel_id`,
+      [sinceMs, accountId],
+    );
+    return r.rows.map((x) => ({
+      channelId: Number(x.channel_id),
+      kind: x.kind,
+      total: Number(x.total),
+      sent: Number(x.sent),
+      failed: Number(x.failed),
+      queued: Number(x.queued),
+      p50Ms: x.p50 === null ? null : Math.round(Number(x.p50)),
+      p95Ms: x.p95 === null ? null : Math.round(Number(x.p95)),
+    }));
   }
 
   async markFailed(id: number, error: string): Promise<void> {

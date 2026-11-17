@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import type { AmojoMessageKind } from '../amojo/client.ts';
-import { ApiError, extOf, fileForm, HttpClient, pause, type HttpOptions } from './http.ts';
+import { ApiError, SEND_CALL, extOf, fileForm, HttpClient, pause, type HttpOptions } from './http.ts';
 import { splitText } from './telegram-bot.ts';
 import { PermanentSendError, reconnectDelayMs, type Connector, type ConnectorSink, type InboundAttachment, type InboundEvent, type OutboundRequest } from './types.ts';
 
@@ -32,7 +33,7 @@ export class VkApi {
   }
 
   /** Метод API. Ошибки VK с кодами 1/6/9/10 — как 503, чтобы withRetry повторил; остальные — как 400 с кодом VK. */
-  call<T = any>(method: string, params: Record<string, string | number | undefined> = {}, timeoutMs = 30_000, signal?: AbortSignal): Promise<T> {
+  call<T = any>(method: string, params: Record<string, string | number | undefined> = {}, timeoutMs = 30_000, signal?: AbortSignal, retries?: number): Promise<T> {
     return this.http.withRetry(async () => {
       const body = new URLSearchParams({ v: VK_VERSION, access_token: this.token });
       for (const [k, v] of Object.entries(params)) if (v !== undefined) body.set(k, String(v));
@@ -45,7 +46,7 @@ export class VkApi {
       }
       if (!j || !('response' in j)) throw new ApiError(0, 'network error');
       return j.response as T;
-    }, signal);
+    }, signal, retries);
   }
 
   /** Сообщество, которому принадлежит ключ. */
@@ -282,8 +283,11 @@ export class VkConnector implements Connector {
     await this.api.call('messages.setActivity', { peer_id: externalChatId, type: 'typing', group_id: this.groupId }, 10_000).catch(() => undefined);
   }
 
-  private randomId(): number {
-    return Math.floor((this.opts.random ?? Math.random)() * 2_147_483_647);
+  /** random_id для messages.send: из ключа сообщения (стабилен между повторами) или случайный. */
+  private randomId(key?: string, part = 0): number {
+    if (!key) return Math.floor((this.opts.random ?? Math.random)() * 2_147_483_647);
+    const h = createHash('sha256').update(`${key}:${part}`).digest();
+    return (h.readUInt32BE(0) & 0x7fffffff) || 1;
   }
 
   private async uploadAttachment(peerId: string, f: NonNullable<OutboundRequest['file']>): Promise<string> {
@@ -304,16 +308,19 @@ export class VkConnector implements Connector {
       const parts = splitText(req.text, 4096);
       const attachment = req.file ? await this.uploadAttachment(req.externalChatId, req.file) : undefined;
       // random_id фиксируется на запрос: повтор после сетевого сбоя не создаст дубль у клиента.
-      const id = await this.api.call<number | { message_id?: number }[]>('messages.send', {
-        peer_id: req.externalChatId,
-        random_id: this.randomId(),
-        message: parts[0] || undefined,
-        attachment,
-        ...reply,
-      });
+      // Один запрос ≤ 10 с, не больше одного повтора (п. 4.3); random_id из ключа сообщения — повтор задачи
+      // после сбоя не создаст дубль у клиента: VK отбрасывает messages.send с тем же random_id.
+      const id = await this.api.call<number | { message_id?: number }[]>(
+        'messages.send',
+        { peer_id: req.externalChatId, random_id: this.randomId(req.idempotencyKey, 0), message: parts[0] || undefined, attachment, ...reply },
+        SEND_CALL.timeoutMs,
+        undefined,
+        SEND_CALL.retries,
+      );
       const first = Array.isArray(id) ? id[0]?.message_id : id;
       if (!first) throw new Error('VK не вернул id сообщения');
-      for (const part of parts.slice(1)) await this.api.call('messages.send', { peer_id: req.externalChatId, random_id: this.randomId(), message: part });
+      let n = 1;
+      for (const part of parts.slice(1)) await this.api.call('messages.send', { peer_id: req.externalChatId, random_id: this.randomId(req.idempotencyKey, n++), message: part }, SEND_CALL.timeoutMs, undefined, SEND_CALL.retries);
       return { externalMessageId: String(first) };
     } catch (err) {
       if (err instanceof ApiError && VK_NO_PERMISSION_TO_WRITE.has(Number(err.apiCode))) {

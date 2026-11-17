@@ -1,5 +1,6 @@
 import type { Dispatcher } from 'undici';
 import type { AmojoMessageKind } from '../amojo/client.ts';
+import { SEND_CALL } from './http.ts';
 import {
   PermanentSendError,
   reconnectDelayMs,
@@ -83,20 +84,20 @@ export class TelegramBotApi {
   }
 
   /** Повтор при сбое сети, 429 и 5xx. Успешный ответ не повторяется — сообщение не уйдёт дважды. */
-  private async withRetry<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  private async withRetry<T>(fn: () => Promise<T>, signal?: AbortSignal, retries: number = this.retries): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       try {
         return await fn();
       } catch (err) {
-        if (signal?.aborted || !isRetryable(err) || attempt >= this.retries) throw err;
+        if (signal?.aborted || !isRetryable(err) || attempt >= retries) throw err;
         await this.sleep(retryDelayMs(attempt, err, this.random), signal);
         if (signal?.aborted) throw err;
       }
     }
   }
 
-  call<T = any>(method: string, params: Record<string, unknown> | FormData = {}, timeoutMs = 30_000, signal?: AbortSignal): Promise<T> {
-    return this.withRetry(() => this.callOnce<T>(method, params, timeoutMs, signal), signal);
+  call<T = any>(method: string, params: Record<string, unknown> | FormData = {}, timeoutMs = 30_000, signal?: AbortSignal, retries?: number): Promise<T> {
+    return this.withRetry(() => this.callOnce<T>(method, params, timeoutMs, signal), signal, retries);
   }
 
   private async callOnce<T>(method: string, params: Record<string, unknown> | FormData, timeoutMs: number, signal?: AbortSignal): Promise<T> {
@@ -302,13 +303,14 @@ export class TelegramBotConnector implements Connector {
         if (req.text) form.set('caption', req.text.slice(0, 1024));
         if (reply.reply_parameters) form.set('reply_parameters', JSON.stringify(reply.reply_parameters));
         form.set(field, new Blob([new Uint8Array(req.file.data)], { type: req.file.mime }), req.file.name);
-        result = await this.api.call(method, form, 120_000);
+        result = await this.api.call(method, form, 120_000, undefined, SEND_CALL.retries);
         // Подпись длиннее лимита Telegram дописываем отдельным сообщением.
-        if (req.text.length > 1024) await this.api.call('sendMessage', { chat_id: req.externalChatId, text: req.text.slice(1024) });
+        if (req.text.length > 1024) await this.api.call('sendMessage', { chat_id: req.externalChatId, text: req.text.slice(1024) }, SEND_CALL.timeoutMs, undefined, SEND_CALL.retries);
       } else {
+        // Текст: один запрос ≤ 10 с, один повтор (п. 4.3).
         const parts = splitText(req.text, 4096);
-        result = await this.api.call('sendMessage', { chat_id: req.externalChatId, text: parts[0] ?? '', ...reply });
-        for (const part of parts.slice(1)) await this.api.call('sendMessage', { chat_id: req.externalChatId, text: part });
+        result = await this.api.call('sendMessage', { chat_id: req.externalChatId, text: parts[0] ?? '', ...reply }, SEND_CALL.timeoutMs, undefined, SEND_CALL.retries);
+        for (const part of parts.slice(1)) await this.api.call('sendMessage', { chat_id: req.externalChatId, text: part }, SEND_CALL.timeoutMs, undefined, SEND_CALL.retries);
       }
       return { externalMessageId: String(result.message_id) };
     } catch (err) {

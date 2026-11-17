@@ -32,6 +32,11 @@ export interface HttpOptions {
   resolve?: Resolver;
 }
 
+/** Параметры одного запроса: таймаут и число повторов (для отправки сообщений — 10 с и 1 повтор, п. 4.3). */
+export type RequestInitEx = RequestInit & { timeoutMs?: number; signal?: AbortSignal; retries?: number };
+/** Отправка сообщения клиенту: один запрос ≤ 10 с, не больше одного повтора. */
+export const SEND_CALL = { timeoutMs: 10_000, retries: 1 } as const;
+
 /** Повторять имеет смысл: нет ответа, 429 или ошибка сервера. 2xx и остальные 4xx — нет. */
 export const isRetryable = (err: unknown): err is ApiError => err instanceof ApiError && (err.status === 0 || err.status === 429 || err.status >= 500);
 
@@ -71,12 +76,12 @@ export class HttpClient {
   }
 
   /** Повтор при сбое сети, 429 и 5xx. Успешный ответ не повторяется — сообщение не уйдёт дважды. */
-  async withRetry<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  async withRetry<T>(fn: () => Promise<T>, signal?: AbortSignal, retries: number = this.retries): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       try {
         return await fn();
       } catch (err) {
-        if (signal?.aborted || !isRetryable(err) || attempt >= this.retries) throw err;
+        if (signal?.aborted || !isRetryable(err) || attempt >= retries) throw err;
         await this.sleep(retryDelayMs(attempt, err, this.random), signal);
         if (signal?.aborted) throw err;
       }
@@ -87,8 +92,9 @@ export class HttpClient {
    * Один HTTP-запрос с таймаутом. Сетевая ошибка → ApiError(0) без адреса (в нём может быть токен).
    * 429 и 5xx → ApiError с retryAfter, чтобы withRetry повторил. Остальные статусы возвращаются как есть.
    */
-  async request(url: string, init: RequestInit & { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<HttpResponse> {
+  async request(url: string, init: RequestInitEx = {}): Promise<HttpResponse> {
     const { timeoutMs = 30_000, signal, ...rest } = init;
+    delete (rest as { retries?: number }).retries;
     const timeout = AbortSignal.timeout(timeoutMs);
     let res: Response;
     try {
@@ -112,8 +118,8 @@ export class HttpClient {
   }
 
   /** request + withRetry. */
-  call(url: string, init: RequestInit & { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<HttpResponse> {
-    return this.withRetry(() => this.request(url, init), init.signal);
+  call(url: string, init: RequestInitEx = {}): Promise<HttpResponse> {
+    return this.withRetry(() => this.request(url, init), init.signal, init.retries ?? this.retries);
   }
 
   /**

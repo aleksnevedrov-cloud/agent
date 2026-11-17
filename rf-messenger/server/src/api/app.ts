@@ -11,7 +11,7 @@ import { verifyAmojoHook } from '../amojo/signature.ts';
 import { isAmoOrigin, tokenAudience, verifyWidgetToken, type Principal } from '../auth.ts';
 import type { Bridge, StartChatInput, WindowSendInput } from '../bridge.ts';
 import type { ChatEvent } from '../events.ts';
-import type { JobQueue } from '../queue.ts';
+import { startTicketKey, type JobQueue, type QueueSnapshot, type StartTicket } from '../queue.ts';
 import { chatRoutes } from './chat.ts';
 import { inboxRoutes } from './inbox.ts';
 import { CHAT_START_KINDS, ChannelValidationError, createChannelSchema, KIND_TEXT, PHONE_START_KINDS, STATUS_TEXT, validateChannel } from '../channels.ts';
@@ -42,11 +42,13 @@ export interface ApiDeps {
   fetch?: typeof fetch;
   /** REST API amoCRM (OAuth интеграции). */
   rest?: AmoRest | null;
-  /** «Написать первым»: выполняется в процессе коннекторов, api ждёт результат. */
-  startChat?: (input: StartChatInput) => Promise<{ chatId: number; messageId: number }>;
+  /** «Написать первым»: задача в очередь канала, ответ сразу — талон; результат виджет забирает по талону (п. 4.1). */
+  startChat?: (input: StartChatInput) => Promise<{ ticket: string }>;
+  /** Состояние очередей для /health и уведомлений. */
+  queueSnapshot?: () => Promise<QueueSnapshot[]>;
   /** Вебхуки мессенджеров (Авито): очередь в процесс коннекторов. */
   webhooks?: { add(channelId: number, body: unknown): Promise<void> };
-  /** Окно переписки: отправка (в процессе коннекторов), очередь задач (история), события (SSE). */
+  /** Окно переписки: постановка отправки в очередь (сразу, без ожидания), очередь задач (история), события (SSE). */
   windowSend?: (input: WindowSendInput) => Promise<{ messageIds: number[] }>;
   queue?: JobQueue;
   events?: { subscribe(accountId: number, fn: (ev: ChatEvent) => void): () => void };
@@ -122,11 +124,14 @@ export async function buildApp(deps: ApiDeps, opts: FastifyServerOptions = {}) {
     return reply.code(status).send({ error: status >= 500 ? 'internal_error' : err.message });
   });
 
+  // /health: БД, Redis, прокси, глубина очередей и состояние каналов (п. 4.9). Без секретов, номеров и текстов.
   app.get('/health', async (_req, reply) => {
     const db = await store.db.query('SELECT 1').then(() => true, () => false);
     const redis = await deps.redis.ping().then(() => true, () => false);
     const proxy = readProxyStatus(redis ? await deps.redis.get(PROXY_STATUS_KEY).catch(() => null) : null);
-    return reply.code(db && redis ? 200 : 503).send({ ok: db && redis, db, redis, amojo: Boolean(deps.amojo), ...proxy });
+    const channels = db ? await store.activeChannels().then((list) => list.map((c) => ({ id: c.id, kind: c.kind, status: c.status })), () => []) : [];
+    const queues = redis && deps.queueSnapshot ? await deps.queueSnapshot().catch(() => []) : [];
+    return reply.code(db && redis ? 200 : 503).send({ ok: db && redis, db, redis, amojo: Boolean(deps.amojo), ...proxy, channels, queues });
   });
 
   // ---------- Вебхук amoCRM: исходящие сообщения ----------
@@ -429,17 +434,42 @@ export async function buildApp(deps: ApiDeps, opts: FastifyServerOptions = {}) {
         }
       });
 
+      // «Написать первым»: проверки, которые не требуют коннектора, — здесь и сразу; остальное — в очереди канала.
       w.post('/chats/start', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
         const { accountId, userId } = who(req);
         const body = startChatSchema.safeParse(req.body);
         if (!body.success) return reply.code(400).send({ error: body.error.issues[0]?.message ?? 'Некорректные данные' });
         if (!deps.startChat) return reply.code(503).send({ error: 'Сервис отправки недоступен' });
+        const channel = await store.channelOfAccount(accountId, body.data.channelId);
+        if (!channel) return reply.code(422).send({ error: 'Канал не найден' });
+        if (channel.status !== 'connected') return reply.code(422).send({ error: `${KIND_TEXT[channel.kind]} сейчас не подключён — проверьте канал в настройках виджета` });
         try {
-          return await deps.startChat({ accountId, userId, ...body.data });
+          const { ticket } = await deps.startChat({ accountId, userId, ...body.data });
+          await deps.redis.set(startTicketKey(ticket), JSON.stringify({ status: 'pending', accountId } satisfies StartTicket & { accountId: number }), 'EX', 600);
+          return { ticket };
         } catch (err) {
           req.log.warn({ err: (err as Error).message }, 'написать первым: ошибка');
           return reply.code(422).send({ error: (err as Error).message || 'Не удалось отправить' });
         }
+      });
+
+      /** Результат «Написать первым» по талону: pending → done {chatId, messageId} | error {error}. */
+      w.get<{ Params: { ticket: string } }>('/chats/start/:ticket', { config: { rateLimit: { max: 240, timeWindow: '1 minute' } } }, async (req, reply) => {
+        const { accountId } = who(req);
+        if (!/^[\w-]{1,64}$/.test(req.params.ticket)) return reply.code(400).send({ error: 'Некорректный талон' });
+        const raw = await deps.redis.get(startTicketKey(req.params.ticket));
+        if (!raw) return reply.code(404).send({ error: 'Отправка не найдена или устарела' });
+        const t = JSON.parse(raw) as StartTicket & { accountId?: number };
+        if (t.accountId !== undefined && t.accountId !== accountId) return reply.code(404).send({ error: 'Отправка не найдена' });
+        return t;
+      });
+
+      /** Сводка исходящих за сутки по каналам (п. 4.10): только числа, администратору. */
+      w.get<{ Querystring: { hours?: string } }>('/stats', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+        const p = who(req);
+        if (!p.isAdmin) return reply.code(403).send({ error: 'Только администратору' });
+        const hours = Math.min(Math.max(Number(req.query.hours ?? 24) || 24, 1), 24 * 30);
+        return { hours, channels: await store.outboundStats(Date.now() - hours * 3_600_000, p.accountId) };
       });
     },
     { prefix: '/widget/v1' },

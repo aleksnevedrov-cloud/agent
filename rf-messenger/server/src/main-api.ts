@@ -1,12 +1,12 @@
 import { setDefaultResultOrder } from 'node:dns';
-import { Queue, QueueEvents } from 'bullmq';
+import { Queue } from 'bullmq';
 import { buildApp } from './api/app.ts';
 import { Bridge } from './bridge.ts';
 import { loadEnv } from './config.ts';
 import { migrate } from './db.ts';
 import { createCore } from './deps.ts';
-import { chatEventsChannel, parseChatEvent, type ChatEvent } from './events.ts';
-import { JOB_OPTIONS, QUEUE_NAME, RedisPacer, START_JOB_OPTIONS, START_QUEUE_NAME, START_WAIT_MS, WEBHOOK_JOB_OPTIONS, WEBHOOK_QUEUE_NAME, type JobQueue, type WebhookJob } from './queue.ts';
+import { chatEventsChannel, parseChatEvent, RedisChatEvents, type ChatEvent } from './events.ts';
+import { BullJobQueue, channelQueueName, MEDIA_QUEUE_NAME, QUEUE_NAME, RedisPacer, WEBHOOK_JOB_OPTIONS, WEBHOOK_QUEUE_NAME, type WebhookJob } from './queue.ts';
 
 // На сервере нет рабочего IPv6: без этого запросы к Telegram/WhatsApp периодически зависают на AAAA-адресах.
 setDefaultResultOrder('ipv4first');
@@ -15,8 +15,8 @@ setDefaultResultOrder('ipv4first');
 const env = loadEnv();
 const core = createCore(env);
 await migrate(core.db);
-const bull = new Queue(QUEUE_NAME, { connection: core.redis, defaultJobOptions: JOB_OPTIONS });
-const queue: JobQueue = { add: async (name, data, opts) => void (await bull.add(name, data, opts)) };
+// Очереди по каналам (to-channel, start-chat), rfm-media (вложения, история), rfm-messages (в amo).
+const queue = new BullJobQueue(core.redis);
 const bridge = new Bridge({
   store: core.store,
   files: core.files,
@@ -26,9 +26,11 @@ const bridge = new Bridge({
   connector: () => undefined,
   amoDomains: env.AMO_ALLOWED_DOMAINS,
   log: { info: () => undefined, warn: () => undefined, error: () => undefined },
+  rest: core.rest,
+  events: new RedisChatEvents(core.redis),
 });
-const startQueue = new Queue(START_QUEUE_NAME, { connection: core.redis, defaultJobOptions: START_JOB_OPTIONS });
-const startEvents = new QueueEvents(START_QUEUE_NAME, { connection: core.redis.duplicate() });
+// Время запуска — для уведомления о перезапуске (его шлёт процесс connectors).
+await core.redis.set('rfm:boot:api', String(Date.now())).catch(() => undefined);
 const webhookQueue = new Queue<WebhookJob>(WEBHOOK_QUEUE_NAME, { connection: core.redis, defaultJobOptions: WEBHOOK_JOB_OPTIONS });
 
 // События окна переписки: один подписчик Redis на процесс, раздача открытым SSE-соединениям по аккаунту.
@@ -48,13 +50,12 @@ const app = await buildApp({
   bridge,
   queue,
   webhooks: { add: async (channelId, body) => void (await webhookQueue.add('avito', { channelId, body })) },
-  startChat: async (input) => {
-    const job = await startQueue.add('start-chat', input);
-    return (await job.waitUntilFinished(startEvents, START_WAIT_MS)) as { chatId: number; messageId: number };
-  },
-  windowSend: async (input) => {
-    const job = await startQueue.add('window-send', input);
-    return (await job.waitUntilFinished(startEvents, START_WAIT_MS)) as { messageIds: number[] };
+  // «Написать» и отправка из окна не ждут коннектор: задача в очередь канала, ответ сразу (п. 4.1).
+  startChat: async (input) => ({ ticket: await queue.addStart(input) }),
+  windowSend: (input) => bridge.queueFromWindow(input),
+  queueSnapshot: async () => {
+    const channels = await core.store.activeChannels();
+    return queue.snapshot([QUEUE_NAME, MEDIA_QUEUE_NAME, ...channels.map((c) => channelQueueName(c.id))]);
   },
   events: {
     subscribe: (accountId, fn) => {
@@ -72,11 +73,9 @@ await app.listen({ host: env.HOST, port: env.PORT });
 
 const shutdown = async () => {
   await app.close();
-  await bull.close();
-  await startQueue.close();
+  await queue.close();
   await webhookQueue.close();
   await eventSub.quit();
-  await startEvents.close();
   await core.redis.quit();
   await core.db.end();
   process.exit(0);

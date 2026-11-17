@@ -90,14 +90,18 @@ describe('MAX: отправка и проверка токена', () => {
     expect(calls[1]!.body).toMatchObject({ data: expect.anything() });
   });
 
-  it('403 — постоянная ошибка; 5xx повторяется и затем успех', async () => {
+  it('403 — постоянная ошибка; 5xx повторяется один раз (п. 4.3) и затем успех', async () => {
     const forbidden = new MaxConnector('t', { fetch: maxFetch([], () => new Response(JSON.stringify({ code: 'access.denied' }), { status: 403 })), sleep: noSleep });
     await expect(forbidden.send({ externalChatId: '1', text: 'x', file: null, replyToExternalId: null })).rejects.toBeInstanceOf(PermanentSendError);
     let n = 0;
     const calls: Call[] = [];
-    const flaky = new MaxConnector('t', { fetch: maxFetch(calls, () => (n++ < 2 ? new Response('', { status: 503 }) : { message: { body: { mid: 'ok' } } })), retry: { sleep: noSleep }, sleep: noSleep });
+    const flaky = new MaxConnector('t', { fetch: maxFetch(calls, () => (n++ < 1 ? new Response('', { status: 503 }) : { message: { body: { mid: 'ok' } } })), retry: { sleep: noSleep }, sleep: noSleep });
     expect((await flaky.send({ externalChatId: '1', text: 'x', file: null, replyToExternalId: null })).externalMessageId).toBe('ok');
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(2);
+    // Два сбоя подряд — ошибка без третьей попытки: отправка не висит минутами.
+    let m = 0;
+    const down = new MaxConnector('t', { fetch: maxFetch([], () => (m++ < 2 ? new Response('', { status: 503 }) : { message: { body: { mid: 'ok' } } })), retry: { sleep: noSleep }, sleep: noSleep });
+    await expect(down.send({ externalChatId: '1', text: 'x', file: null, replyToExternalId: null })).rejects.toThrow(/503/);
   });
 
   it('long polling: маркер двигается, сообщения уходят в мост; 401 — ошибка токена и остановка', async () => {

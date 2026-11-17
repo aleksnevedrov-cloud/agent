@@ -60,6 +60,7 @@ describe('лента сообщений', () => {
       msg({ id: 1, at: '2026-11-05T09:00:00Z', text: 'Старое' }),
       msg({ id: 2, at: '2026-11-06T09:00:00Z', direction: 'out', source: 'amo', senderName: 'Мария', status: 'read', text: 'Ответ' }),
       msg({ id: 3, at: '2026-11-07T08:00:00Z', direction: 'out', source: 'amo', status: 'failed', error: 'сеть', text: 'Не дошло', replyTo: { id: 1, text: 'Старое', kind: 'text', direction: 'in', senderName: null } }),
+      msg({ id: 4, at: '2026-11-07T08:01:00Z', direction: 'out', source: 'phone', status: 'failed', error: 'VK не ответил за 20 с', text: 'Из окна не дошло' }),
       msg({ id: 4, at: '2026-11-07T08:05:00Z', kind: 'picture', text: '', file: { id: 'f', name: 'a.jpg', mime: 'image/jpeg', size: 10, url: 'https://chat.example.ru/f/x' } }),
       msg({ id: 5, at: '2026-11-07T08:06:00Z', kind: 'voice', text: '', file: { id: 'v', name: 'v.ogg', mime: 'audio/ogg', size: 10, url: 'https://chat.example.ru/f/v' }, author: { id: '7', name: 'Ольга' } }),
     ];
@@ -76,6 +77,9 @@ describe('лента сообщений', () => {
     expect(html).toContain('Старое<span class="rfm-cw-sp" aria-hidden="true"></span>');
     expect(html.match(/rfm-cw-meta rfm-cw-meta-block/g)).toHaveLength(2);
     expect(html).toContain('data-cw="retry" data-id="3"');
+    // «Повторить» и у недоставленного из окна (п. 4.7); текст ошибки виден.
+    expect(html).toContain('data-cw="retry" data-id="4"');
+    expect(html).toContain('VK не ответил за 20 с');
     expect(html).toContain('rfm-cw-quote');
     expect(html).toContain('<img src="https://chat.example.ru/f/x"');
     expect(html).toContain('<audio src="https://chat.example.ru/f/v"');

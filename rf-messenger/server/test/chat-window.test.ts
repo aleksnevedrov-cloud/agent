@@ -100,7 +100,12 @@ beforeEach(async () => {
     redis,
     rest: restStub(),
     queue: t.queue,
-    windowSend: (input) => bridge.sendFromWindow(input),
+    // Как в проде: api ставит в очередь и отвечает сразу; здесь тут же выполняем задачу канала (исполнитель connectors).
+    windowSend: async (input) => {
+      const r = await bridge.queueFromWindow(input);
+      for (const id of r.messageIds) await bridge.deliverToChannel(id, true, null);
+      return r;
+    },
     events: {
       subscribe: (accountId, fn) => {
         const set = bus.get(accountId) ?? new Set();
@@ -200,7 +205,9 @@ describe('окно переписки: отправка, прочитаннос�
     expect(r.statusCode).toBe(200);
     const m = r.json().messages[0];
     expect(m).toMatchObject({ direction: 'out', source: 'phone', text: 'Добрый день! Замер в четверг', senderName: 'Мария Менеджер', replyTo: { id: first.id, text: 'Сообщение 1' } });
-    expect(connector.sent).toEqual([{ externalChatId: '42', text: 'Добрый день! Замер в четверг', file: null, replyToExternalId: '1' }]);
+    expect(connector.sent).toMatchObject([{ externalChatId: '42', text: 'Добрый день! Замер в четверг', file: null, replyToExternalId: '1' }]);
+    // Исполнитель уже отправил и передал в amo: в ответе окна статус конечный (в проде ответ приходит со статусом «в очереди», а результат — по SSE).
+    expect(m.status).toBe('synced');
     const amo = t.calls.filter((c) => c.path === '/v2/origin/custom/scope-xyz').at(-1)!.body.payload as Record<string, any>;
     expect(amo.sender).toEqual({ ref_id: 'amojo-user-7' });
     expect(amo.receiver.name).toBe('Иван Петров');

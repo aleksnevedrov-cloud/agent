@@ -43,7 +43,8 @@ services:
       - "127.0.0.1:${API_PORT:-3100}:3100"
     volumes:
       - files:/data/files
-    mem_limit: 160m
+    # ТЗ 17.11 п. 4.8: api держит SSE-соединения окон и очереди; лимит удвоен. Уточнить по замеру docker stats (п. 3.4).
+    mem_limit: 320m
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -62,7 +63,9 @@ services:
     command: ["node", "dist/connectors.js"]
     volumes:
       - files:/data/files
-    mem_limit: 512m  # этап 2: WhatsApp (Baileys) ≈ 100–200 МБ на номер
+    # WhatsApp (Baileys) ≈ 100–200 МБ на номер + Telegram личный + MAX + VK + исполнители очередей по каналам.
+    # ТЗ 17.11 п. 4.8: лимит удвоен (×2 к прежнему); уточнить по замеру docker stats (п. 3.4). При перезапуске — уведомление в Telegram.
+    mem_limit: 1024m
     depends_on:
       api: { condition: service_healthy }
 

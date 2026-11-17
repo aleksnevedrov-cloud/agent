@@ -73,7 +73,12 @@ beforeEach(async () => {
   await t.store.setChannelStatus(t.channel.id, 'connected');
   app = await buildApp({
     env: t.env, store: t.store, files: t.files, bridge, amojo: t.amojo, box: t.box, redis, rest, queue: t.queue,
-    windowSend: (input) => bridge.sendFromWindow(input),
+    // Как в проде: api ставит в очередь и отвечает сразу; здесь тут же выполняем задачу канала (исполнитель connectors).
+    windowSend: async (input) => {
+      const r = await bridge.queueFromWindow(input);
+      for (const id of r.messageIds) await bridge.deliverToChannel(id, true, null);
+      return r;
+    },
     events: { subscribe: (_a, fn) => (bus.add(fn), () => void bus.delete(fn)) },
   });
 });

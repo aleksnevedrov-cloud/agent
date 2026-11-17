@@ -263,7 +263,8 @@ export function messageHtml(m: MessageView, opts: { isGroup?: boolean } = {}): s
   const quote = m.replyTo
     ? `<div class="rfm-cw-quote" data-cw="jump" data-id="${m.replyTo.id}"><b>${esc(m.replyTo.direction === 'out' ? (m.replyTo.senderName ?? 'Менеджер') : 'Клиент')}</b><div>${esc(m.replyTo.text || `[${m.replyTo.kind}]`).slice(0, 160)}</div></div>`
     : '';
-  const retry = m.status === 'failed' && m.source === 'amo' ? `<button type="button" class="rfm-cw-retry" data-cw="retry" data-id="${m.id}">Повторить</button>` : '';
+  // Недоставленное исходящее (из amoCRM или из окна) можно отправить заново (п. 4.3, 4.7).
+  const retry = m.status === 'failed' && m.direction === 'out' ? `<button type="button" class="rfm-cw-retry" data-cw="retry" data-id="${m.id}">Повторить</button>` : '';
   const err = m.status === 'failed' && m.error ? `<div class="rfm-cw-err">${esc(m.error)}</div>` : '';
   return `<div class="rfm-cw-msg ${out ? 'rfm-cw-out' : 'rfm-cw-in'}${m.fromHistory ? ' rfm-cw-hist' : ''}" data-id="${m.id}" data-at="${esc(m.at)}">
 <div class="rfm-cw-bubble">

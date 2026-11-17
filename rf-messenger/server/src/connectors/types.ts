@@ -34,6 +34,8 @@ export interface OutboundRequest {
   text: string;
   file: { data: Buffer; name: string; mime: string; kind: Exclude<AmojoMessageKind, 'text'> } | null;
   replyToExternalId: string | null;
+  /** Ключ сообщения у нас (rfm-m<id>): повтор отправки не должен создать дубль у клиента (VK random_id). */
+  idempotencyKey?: string;
 }
 
 export interface ConnectorSink {

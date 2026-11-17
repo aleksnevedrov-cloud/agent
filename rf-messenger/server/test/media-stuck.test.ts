@@ -13,12 +13,21 @@ afterEach(async () => {
 const photo = { kind: 'picture' as const, ref: 'wa-photo-1', name: 'photo.jpg', mime: 'image/jpeg' };
 
 describe('входящее фото не теряется', () => {
-  it('зависшее скачивание вложения обрывается по таймауту, сообщение всё равно уходит в amo', async () => {
+  it('зависшее скачивание вложения обрывается по таймауту; после последней попытки сообщение уходит в amo без файла', async () => {
     t.connector.download = () => new Promise(() => undefined); // прокси повис и не отвечает
     const bridge = new Bridge({ ...t.bridgeDeps, mediaTimeoutMs: 50 });
     await bridge.onInbound(t.channel, t.connector, event({ text: '', attachment: photo }));
-    expect(t.queue.jobs.map((j) => j.name)).toEqual(['to-amo']);
-    await bridge.deliverToAmo(t.queue.jobs[0]!.data.messageId);
+    // Без текста to-amo ждёт файл: задача только media (в отдельной очереди, текст других сообщений не задерживает).
+    expect(t.queue.jobs.map((j) => j.name)).toEqual(['media']);
+    const data = t.queue.jobs[0]!.data;
+    expect(data).toMatchObject({ channelId: t.channel.id, attachment: photo });
+    // Не последняя попытка — ошибка наружу, BullMQ повторит.
+    await expect(bridge.fetchInboundMedia(data, false)).rejects.toThrow(/нет ответа за/);
+    expect(t.queue.jobs).toHaveLength(1);
+    // Последняя — сообщение уходит в amo с пометкой.
+    await bridge.fetchInboundMedia(data, true);
+    expect(t.queue.jobs.map((j) => j.name)).toEqual(['media', 'to-amo']);
+    await bridge.deliverToAmo(data.messageId);
     const p = t.calls.at(-1)!.body.payload as { message: { type: string; text: string } };
     expect(p.message).toEqual({ type: 'text', text: '[Вложение не получено]' });
   });

@@ -52,9 +52,17 @@ describe('канал → amoCRM', () => {
   it('фото: файл хранится у нас, в amo уходит подписанная ссылка', async () => {
     t.connector.files.set('big', Buffer.from('JPEGDATA'));
     await t.bridge.onInbound(t.channel, t.connector, event({ text: 'Вот такую', attachment: { kind: 'picture', ref: 'big', name: 'photo.jpg', mime: 'image/jpeg' } }));
-    await t.bridge.deliverToAmo(t.queue.jobs[0]!.data.messageId);
+    // Текст уходит сразу, файл — отдельной задачей и вторым сообщением (п. 4.6).
+    expect(t.queue.jobs.map((j) => j.name)).toEqual(['media', 'to-amo']);
+    await t.bridge.deliverToAmo(t.queue.jobs[1]!.data.messageId);
+    expect((t.calls.at(-1)!.body.payload as Record<string, any>).message).toEqual({ type: 'text', text: 'Вот такую' });
+    await t.bridge.fetchInboundMedia(t.queue.jobs[0]!.data, true);
+    expect(t.queue.jobs.at(-1)!.name).toBe('to-amo-media');
+    await t.bridge.deliverMediaToAmo(t.queue.jobs[0]!.data.messageId);
     const p = t.calls.at(-1)!.body.payload as Record<string, any>;
-    expect(p.message).toMatchObject({ type: 'picture', file_name: 'photo.jpg', file_size: 8, text: 'Вот такую' });
+    expect(p.msgid).toMatch(/-media$/);
+    expect(p.message).toMatchObject({ type: 'picture', file_name: 'photo.jpg', file_size: 8 });
+    expect((await t.store.messageById(t.queue.jobs[0]!.data.messageId))?.amojoMediaMsgid).toBeTruthy();
     const url = new URL(p.message.media);
     expect(url.origin).toBe('https://chat.example.ru');
     const [, , id] = url.pathname.split('/');
@@ -130,21 +138,30 @@ describe('amoCRM → канал', () => {
     return (t.calls.at(-1)!.body.payload as { conversation_id: string }).conversation_id;
   }
 
-  it('ставит в очередь с паузой, отправляет в канал и сообщает «доставлено»', async () => {
+  it('бот: без паузы и «печатает» — сразу в канал, затем «доставлено»; личный аккаунт — с паузой (п. 4.5)', async () => {
     const conv = await chatConversation();
     expect(await t.bridge.onAmoHook(31337, hook(conv))).toBe('queued');
     expect(await t.bridge.onAmoHook(31337, hook(conv))).toBe('duplicate');
     const job = t.queue.jobs.find((j) => j.name === 'to-channel')!;
-    expect(job.delay).toBe(1500);
+    expect(job.delay).toBe(0);
+    expect(job.data.channelId).toBe(t.channel.id);
+    expect(job.data.deadline).toBeGreaterThan(Date.now());
     await t.bridge.deliverToChannel(job.data.messageId, false);
-    expect(t.connector.typed).toEqual(['42']);
-    expect(t.connector.sent).toEqual([{ externalChatId: '42', text: 'Добрый день! Дверь стоит 15 000 ₽', file: null, replyToExternalId: null }]);
+    expect(t.connector.typed).toEqual([]);
+    expect(t.connector.sent).toEqual([{ externalChatId: '42', text: 'Добрый день! Дверь стоит 15 000 ₽', file: null, replyToExternalId: null, idempotencyKey: `rfm-m${job.data.messageId}` }]);
     const st = t.calls.at(-1)!;
     expect(st.path).toBe('/v2/origin/custom/scope-xyz/amo-out-1/delivery_status');
     expect(st.body).toEqual({ msgid: 'amo-out-1', delivery_status: 1 });
     // Повтор задачи не отправляет второй раз.
     await t.bridge.deliverToChannel(job.data.messageId, false);
     expect(t.connector.sent).toHaveLength(1);
+    // Тот же чат, но канал — WhatsApp: пауза из pacer и «печатает».
+    await t.db.query("UPDATE channels SET kind = 'whatsapp' WHERE id = $1", [t.channel.id]);
+    await t.bridge.onAmoHook(31337, hook(conv, { id: 'amo-out-2' }));
+    const paced = t.queue.jobs.filter((j) => j.name === 'to-channel').at(-1)!;
+    expect(paced.delay).toBe(1500);
+    await t.bridge.deliverToChannel(paced.data.messageId, false);
+    expect(t.connector.typed).toEqual(['42']);
   });
 
   it('чужой аккаунт и неизвестная беседа не обрабатываются', async () => {
@@ -192,7 +209,8 @@ describe('amoCRM → канал', () => {
     t.connector.failWith = new PermanentSendError('Клиент заблокировал бота или удалил чат');
     await t.bridge.deliverToChannel(t.queue.jobs.at(-1)!.data.messageId, false);
     const st = t.calls.at(-1)!;
-    expect(st.body).toMatchObject({ delivery_status: -1, error_code: 905, error: 'Клиент заблокировал бота или удалил чат' });
+    // Текст ошибки — с названием канала (п. 4.4).
+    expect(st.body).toMatchObject({ delivery_status: -1, error_code: 905, error: 'Telegram-бот: Клиент заблокировал бота или удалил чат' });
   });
 
   it('временная ошибка — повтор очереди; на последней попытке — «ошибка»', async () => {

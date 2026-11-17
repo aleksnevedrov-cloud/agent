@@ -171,3 +171,8 @@ export const KIND_TEXT: Record<ChannelKind, string> = {
 export const PHONE_START_KINDS: ReadonlySet<ChannelKind> = new Set(['whatsapp', 'telegram_user', 'max_phone']);
 /** Каналы, где написать можно только тем, кто уже писал боту или сообществу (выбор из существующих чатов). */
 export const CHAT_START_KINDS: ReadonlySet<ChannelKind> = new Set(['vk', 'max']);
+/**
+ * Каналы с «человеческим» темпом отправки (пауза перед ответом и «печатает…»): личные аккаунты, где есть риск
+ * блокировки за автоматическую рассылку. Боты и сообщества (Telegram-бот, MAX-бот, VK, Авито) отвечают сразу (п. 4.5).
+ */
+export const PACED_KINDS: ReadonlySet<ChannelKind> = new Set(['whatsapp', 'telegram_user', 'max_phone']);

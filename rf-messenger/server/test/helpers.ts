@@ -69,6 +69,24 @@ export class MemoryQueue implements JobQueue {
     if (this.jobs.some((j) => j.jobId === opts.jobId)) return; // как BullMQ: jobId уникален
     this.jobs.push({ name, data, ...opts });
   }
+  /** Невыполненные задачи с именем name (с позиции from). */
+  pending(name: JobName, from = 0) {
+    return this.jobs.slice(from).filter((j) => j.name === name);
+  }
+}
+
+/** Выполнить задачи очереди как исполнители connectors: media → to-amo/to-amo-media → to-channel, пока очередь не опустеет. */
+export async function drain(bridge: Bridge, queue: MemoryQueue, opts: { lastAttempt?: boolean } = {}): Promise<void> {
+  const done = new Set<string>();
+  for (let guard = 0; guard < 50; guard++) {
+    const next = queue.jobs.find((j) => !done.has(j.jobId));
+    if (!next) return;
+    done.add(next.jobId);
+    if (next.name === 'media') await bridge.fetchInboundMedia(next.data, opts.lastAttempt ?? true);
+    else if (next.name === 'to-amo') await bridge.deliverToAmo(next.data.messageId);
+    else if (next.name === 'to-amo-media') await bridge.deliverMediaToAmo(next.data.messageId);
+    else if (next.name === 'to-channel') await bridge.deliverToChannel(next.data.messageId, opts.lastAttempt ?? true, next.data.deadline ?? null);
+  }
 }
 
 export class FakeConnector implements Connector {

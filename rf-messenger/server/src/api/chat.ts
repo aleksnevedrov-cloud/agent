@@ -273,10 +273,12 @@ export async function chatRoutes(app: FastifyInstance, deps: ChatRouteDeps): Pro
         const body = sendSchema.safeParse(req.body);
         if (!body.success) return reply.code(400).send({ error: body.error.issues[0]?.message ?? 'Некорректные данные' });
         if (!body.data.text.trim() && !body.data.fileIds.length) return reply.code(400).send({ error: 'Введите сообщение или добавьте файл' });
-        if (!deps.windowSend) return reply.code(503).send({ error: 'Сервис отправки недоступен' });
+        // Отправка ставится в очередь канала и сразу возвращается в окно со статусом «отправляется»;
+        // результат («отправлено» / ошибка с причиной) придёт по SSE (п. 4.1).
+        const send = deps.windowSend ?? ((i: WindowSendInput) => deps.bridge.queueFromWindow(i));
         const input: WindowSendInput = { accountId: p.accountId, userId: p.userId, chatId: chat.id, text: body.data.text, replyToMessageId: body.data.replyToMessageId ?? null, fileIds: body.data.fileIds };
         try {
-          const r = await deps.windowSend(input);
+          const r = await send(input);
           return { messages: await messageViews(deps, chat.id, await store.messagesByIds(chat.id, r.messageIds)) };
         } catch (err) {
           req.log.warn({ chatId: chat.id, err: (err as Error).message }, 'отправка из окна: ошибка');
@@ -307,7 +309,7 @@ export async function chatRoutes(app: FastifyInstance, deps: ChatRouteDeps): Pro
         const msg = Number.isInteger(id) && id > 0 ? await store.messageById(id) : null;
         const chat = msg ? await store.chatOfAccount(p.accountId, msg.chatId) : null;
         if (!msg || !chat || !(await canAccess(p, chat))) return reply.code(404).send({ error: 'Сообщение не найдено' });
-        if (!(await deps.bridge.retryMessage(p.accountId, msg.id))) return reply.code(409).send({ error: 'Повторить можно только недоставленное сообщение из amoCRM' });
+        if (!(await deps.bridge.retryMessage(p.accountId, msg.id))) return reply.code(409).send({ error: 'Повторить можно только недоставленное исходящее сообщение' });
         return { queued: true };
       });
 

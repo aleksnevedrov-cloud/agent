@@ -60,6 +60,11 @@ export class ConnectorHost {
     return this.running.get(channelId);
   }
 
+  /** id каналов с запущенными коннекторами (для очередей по каналам). */
+  ids(): number[] {
+    return [...this.running.keys()];
+  }
+
   /** Сверка с БД: запустить новые каналы, остановить удалённые. */
   async syncAll(): Promise<void> {
     const channels = await this.store.activeChannels();

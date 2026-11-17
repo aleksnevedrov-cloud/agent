@@ -1,5 +1,5 @@
 import type { AmojoMessageKind } from '../amojo/client.ts';
-import { ApiError, fileForm, HttpClient, pause, type HttpOptions } from './http.ts';
+import { ApiError, fileForm, HttpClient, pause, SEND_CALL, type HttpOptions } from './http.ts';
 import { splitText } from './telegram-bot.ts';
 import { PermanentSendError, reconnectDelayMs, type Connector, type ConnectorSink, type InboundAttachment, type InboundEvent, type OutboundRequest } from './types.ts';
 
@@ -27,7 +27,7 @@ export class MaxApi {
   }
 
   /** Запрос к API; ошибки API — ApiError со статусом и кодом (verify.token, attachment.not.ready…). */
-  async call<T = any>(method: 'GET' | 'POST' | 'DELETE' | 'PUT', path: string, query: Record<string, string | number> = {}, body?: unknown, timeoutMs = 30_000, signal?: AbortSignal): Promise<T> {
+  async call<T = any>(method: 'GET' | 'POST' | 'DELETE' | 'PUT', path: string, query: Record<string, string | number> = {}, body?: unknown, timeoutMs = 30_000, signal?: AbortSignal, retries?: number): Promise<T> {
     const url = new URL(path, MAX_API);
     for (const [k, v] of Object.entries(query)) url.searchParams.set(k, String(v));
     const res = await this.http.call(url.toString(), {
@@ -36,6 +36,7 @@ export class MaxApi {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       timeoutMs,
       signal,
+      ...(retries === undefined ? {} : { retries }),
     });
     if (res.status >= 400) {
       const e = res.json as { code?: string; message?: string } | null;
@@ -246,7 +247,8 @@ export class MaxConnector implements Connector {
     // После загрузки файл обрабатывается; пока не готов — API отвечает 400 attachment.not.ready.
     for (let attempt = 0; ; attempt++) {
       try {
-        const r = await this.api.call<{ message?: { body?: { mid?: string } } }>('POST', '/messages', { chat_id: chatId }, body, 60_000);
+        // Текст: один запрос ≤ 10 с, один повтор (п. 4.3); с вложением сервер MAX отвечает дольше.
+        const r = await this.api.call<{ message?: { body?: { mid?: string } } }>('POST', '/messages', { chat_id: chatId }, body, body.attachments ? 60_000 : SEND_CALL.timeoutMs, undefined, SEND_CALL.retries);
         const mid = r.message?.body?.mid;
         if (!mid) throw new Error('MAX не вернул id сообщения');
         return { mid };

@@ -2,11 +2,11 @@ import { z } from 'zod';
 import { AmojoError, type AmojoClient, type AmojoMessage, type AmojoMessageKind, type AmojoUser, type NewMessagePayload } from './amojo/client.ts';
 import { chooseContact, exactPhoneMatches, phoneTail, phoneTail4 } from './amo/contact-match.ts';
 import { AmoRestError, type AmoRest } from './amo/rest.ts';
-import { CHAT_START_KINDS } from './channels.ts';
+import { CHAT_START_KINDS, KIND_TEXT, PACED_KINDS } from './channels.ts';
 import { normalizePhone, PermanentSendError, type Connector, type InboundEvent } from './connectors/types.ts';
 import type { ChatEvents } from './events.ts';
 import type { FileStore } from './files.ts';
-import type { JobQueue, Pacer } from './queue.ts';
+import { SEND_DEADLINE_MS, SEND_TIMEOUT_MS, type JobData, type JobQueue, type Pacer } from './queue.ts';
 import { downloadFromAmo, type Resolver } from './safe-fetch.ts';
 import type { Channel, Chat, Message, Store } from './store.ts';
 
@@ -40,6 +40,10 @@ export interface BridgeDeps {
   contactLookupTimeoutMs?: number;
   contactCacheTtlMs?: number;
   now?: () => number;
+  /** Вся отправка одного сообщения в мессенджер (по умолчанию 20 с, п. 4.3). */
+  sendTimeoutMs?: number;
+  /** Срок жизни исходящего в очереди (по умолчанию 2 мин, п. 4.7). */
+  sendDeadlineMs?: number;
 }
 
 /** Отправка из окна переписки в карточке: текст и/или файлы в существующий чат от имени сотрудника. */
@@ -204,30 +208,87 @@ export class Bridge {
       await this.d.queue.add('history', { messageId: 0, chatId: chat.id }, { jobId: `history-${chat.id}-first` }).catch(() => undefined);
     }
     if (ev.attachment) {
-      try {
-        // Без таймаута зависшее скачивание (прокси или сервер медиа не отвечает) держало сообщение
-        // навсегда: задача to-amo не ставилась, и в amoCRM не приходило ничего.
-        const { data, mime } = await withTimeout(
-          connector.download(ev.attachment.ref, this.d.files.maxBytes),
-          this.d.mediaTimeoutMs ?? 90_000,
-          'скачивание вложения',
-        );
-        const file = await this.d.files.save({
-          accountId: channel.accountId,
-          channelId: channel.id,
-          data,
-          name: ev.attachment.name,
-          mime: ev.attachment.mime ?? mime,
-        });
-        await this.d.store.setMessageFile(msg.id, file.id);
-      } catch (err) {
-        this.d.log.warn({ channelId: channel.id, messageId: msg.id, err: (err as Error).message }, 'вложение не скачано');
-      }
+      // Тяжёлое — в отдельную очередь (п. 4.6): текст уходит в amo сразу, файл догоняет отдельным сообщением.
+      // Без текста сообщение ждёт файл: иначе в amo пришла бы пустая заглушка.
+      await this.d.queue.add('media', { messageId: msg.id, channelId: channel.id, attachment: ev.attachment }, { jobId: `media-${msg.id}` });
+      if (ev.text.trim()) await this.d.queue.add('to-amo', { messageId: msg.id }, { jobId: `to-amo-${msg.id}` });
+    } else {
+      await this.d.queue.add('to-amo', { messageId: msg.id }, { jobId: `to-amo-${msg.id}` });
     }
-    await this.d.queue.add('to-amo', { messageId: msg.id }, { jobId: `to-amo-${msg.id}` });
     await this.d.events?.publish(chat.accountId, { type: 'message', chatId: chat.id, messageId: msg.id });
     // Правило счётчиков: входящее — красный +1; ответ с телефона — закрывает неотвеченные.
     await this.noteCounters(chat, ev.fromMe ? { by: 'reply', messageId: msg.id } : null, msg.createdAt);
+  }
+
+  /**
+   * Задача media: скачать вложение входящего и поставить передачу в amo. Если текст уже ушёл — файл идёт
+   * вторым сообщением (to-amo-media); если нет — обычным to-amo. После последней неудачи сообщение
+   * уходит без файла, как «[Вложение не получено]».
+   */
+  async fetchInboundMedia(data: JobData, lastAttempt: boolean): Promise<void> {
+    const msg = await this.d.store.messageById(data.messageId);
+    if (!msg || msg.fileId || !data.attachment) return;
+    const chat = await this.d.store.chatById(msg.chatId);
+    const channel = chat ? await this.d.store.channelById(chat.channelId) : null;
+    const connector = channel ? this.d.connector(channel.id) : undefined;
+    const followUp = async () => {
+      if (msg.amojoMsgid) await this.d.queue.add('to-amo-media', { messageId: msg.id }, { jobId: `to-amo-media-${msg.id}` });
+      else await this.d.queue.add('to-amo', { messageId: msg.id }, { jobId: `to-amo-${msg.id}` });
+    };
+    try {
+      if (!chat || !channel || !connector) throw new Error('Коннектор канала не запущен');
+      const { data: bytes, mime } = await withTimeout(connector.download(data.attachment.ref, this.d.files.maxBytes), this.d.mediaTimeoutMs ?? 90_000, 'скачивание вложения');
+      const file = await this.d.files.save({ accountId: channel.accountId, channelId: channel.id, data: bytes, name: data.attachment.name, mime: data.attachment.mime ?? mime });
+      await this.d.store.setMessageFile(msg.id, file.id);
+      this.d.log.info({ channelId: channel.id, messageId: msg.id, kind: data.attachment.kind, bytes: bytes.length }, 'вложение скачано');
+      await followUp();
+      await this.d.events?.publish(chat.accountId, { type: 'message', chatId: chat.id, messageId: msg.id });
+    } catch (err) {
+      this.d.log.warn({ channelId: channel?.id ?? data.channelId, messageId: msg.id, kind: data.attachment.kind, attempt: lastAttempt ? 'последняя' : 'повтор', err: (err as Error).message }, 'вложение не скачано');
+      if (!lastAttempt) throw err;
+      // Файла не будет: текст (если ещё не ушёл) передаём с пометкой; если текст уже в amo — ничего не добавляем.
+      if (!msg.amojoMsgid) await this.d.queue.add('to-amo', { messageId: msg.id }, { jobId: `to-amo-${msg.id}` });
+    }
+  }
+
+  /** Задача to-amo-media: файл входящего, скачанный после передачи текста, — отдельным сообщением в amo. */
+  deliverMediaToAmo(messageId: number): Promise<void> {
+    return this.d.store.messageById(messageId).then((msg) => (msg ? this.perChat(msg.chatId, () => this.deliverMediaToAmoNow(messageId)) : undefined));
+  }
+
+  private async deliverMediaToAmoNow(messageId: number): Promise<void> {
+    const msg = await this.d.store.messageById(messageId);
+    if (!msg || msg.source === 'amo' || !msg.amojoMsgid || msg.amojoMediaMsgid || !msg.fileId || msg.kind === 'text') return;
+    const chat = await this.d.store.chatById(msg.chatId);
+    if (!chat) return;
+    const conn = await this.d.store.getConnection(chat.accountId);
+    if (!conn || !this.d.amojo) throw new Error('Канал чатов amoCRM не подключён к аккаунту');
+    const file = await this.d.store.fileById(msg.fileId);
+    if (!file) return;
+    const { sender, receiver, silent } = this.amoParties(msg, chat, conn.amoOperatorRef);
+    const r = await this.d.amojo.sendMessage(conn.scopeId, {
+      timestamp: Math.floor(msg.createdAt.getTime() / 1000),
+      msec_timestamp: msg.createdAt.getTime(),
+      msgid: `${ourMsgid(msg.id)}-media`,
+      conversation_id: chat.conversationId,
+      sender,
+      ...(receiver ? { receiver } : {}),
+      message: { type: msg.kind, media: this.d.files.signedUrl(file), file_name: file.name, file_size: file.size },
+      silent,
+    });
+    await this.d.store.markMediaSynced(msg.id, r.msgid);
+  }
+
+  /**
+   * Стороны сообщения в amo: от клиента — отправитель клиент; с телефона или из окна — отправитель сотрудник
+   * (ref_id), получатель клиент, без уведомления. amo принимает исходящее только от своего пользователя.
+   */
+  private amoParties(msg: Message, chat: Chat, accountOperatorRef: string | null): { sender: NewMessagePayload['sender']; receiver: AmojoUser | null; silent: boolean } {
+    const client = this.clientUser(chat);
+    if (msg.source !== 'phone') return { sender: client, receiver: null, silent: false };
+    const ref = chat.amoOperatorRef ?? accountOperatorRef;
+    if (!ref) throw new Error('Сообщение с телефона: неизвестен сотрудник amoCRM — он определится, когда менеджер напишет клиенту из amoCRM');
+    return { sender: { ref_id: ref }, receiver: client, silent: true };
   }
 
   /** Обновить счётчики «неотвеченных» и разослать их в окна. null — входящее от клиента. */
@@ -325,75 +386,66 @@ export class Bridge {
   }
 
   /**
-   * Отправка из окна переписки: клиенту — через коннектор, в amoCRM — как исходящее от этого сотрудника
-   * (тем же путём, что сообщения с телефона). Текст уходит подписью к первому файлу.
+   * Отправка из окна переписки или раздела (п. 4.1): сообщение сохраняется как «в очереди», ставится в очередь
+   * канала и сразу возвращается в окно; клиенту его отправит процесс коннекторов (deliverToChannel), результат
+   * придёт по SSE. В amoCRM уходит после отправки — как исходящее от этого сотрудника. Работает в процессе api.
    */
-  async sendFromWindow(input: WindowSendInput): Promise<{ messageIds: number[] }> {
+  async queueFromWindow(input: WindowSendInput): Promise<{ messageIds: number[] }> {
     const text = input.text.trim();
     const fileIds = input.fileIds ?? [];
     if (!text && !fileIds.length) throw new StartChatError('Пустое сообщение');
     const chat = await this.d.store.chatOfAccount(input.accountId, input.chatId);
     if (!chat) throw new StartChatError('Чат не найден');
     const channel = await this.d.store.channelById(chat.channelId);
-    const connector = channel ? this.d.connector(channel.id) : undefined;
-    if (!channel || !connector) throw new StartChatError('Канал сейчас не запущен — проверьте его в настройках виджета');
-    if (channel.status !== 'connected') throw new StartChatError('Канал сейчас не подключён');
+    if (!channel) throw new StartChatError('Канал удалён');
+    if (channel.status !== 'connected') throw new StartChatError(`${KIND_TEXT[channel.kind]} сейчас не подключён — проверьте канал в настройках виджета`);
     const quoted = input.replyToMessageId ? await this.d.store.messageById(input.replyToMessageId) : null;
-    const replyToExternalId = quoted && quoted.chatId === chat.id ? quoted.externalId : null;
+    const replyToMessageId = quoted && quoted.chatId === chat.id ? quoted.id : null;
     let senderName: string | null = null;
     if (this.d.rest) {
-      senderName = await this.d.rest.userName(input.accountId, input.userId).catch(() => null);
-      const ref = await this.d.rest.userAmojoId(input.accountId, input.userId).catch(() => null);
+      // Имя и amojo-ссылка сотрудника: не дольше 1,5 с, иначе отправляем без них (окно не должно ждать amo).
+      const rest = this.d.rest;
+      senderName = await withTimeout(rest.userName(input.accountId, input.userId), 1500, 'имя сотрудника').catch(() => null);
+      const ref = await withTimeout(rest.userAmojoId(input.accountId, input.userId), 1500, 'ссылка сотрудника').catch(() => null);
       if (ref) await this.d.store.rememberAmoOperator(input.accountId, chat.id, ref);
     }
-    const parts: { text: string; file: { id: string; data: Buffer; name: string; mime: string; kind: Exclude<AmojoMessageKind, 'text'> } | null }[] = [];
+    const parts: { text: string; fileId: string | null; kind: AmojoMessageKind }[] = [];
     for (const fileId of fileIds.slice(0, 10)) {
       const rec = await this.d.store.fileById(fileId);
       if (!rec || rec.accountId !== input.accountId) throw new StartChatError('Файл не найден');
-      parts.push({ text: parts.length === 0 ? text : '', file: { id: rec.id, data: await this.d.files.read(rec.id), name: rec.name, mime: rec.mime, kind: kindOfMime(rec.mime, rec.name) } });
+      parts.push({ text: parts.length === 0 ? text : '', fileId: rec.id, kind: kindOfMime(rec.mime, rec.name) });
     }
-    if (!parts.length) parts.push({ text, file: null });
+    if (!parts.length) parts.push({ text, fileId: null, kind: 'text' });
     const ids: number[] = [];
+    const deadline = (this.d.now?.() ?? Date.now()) + (this.d.sendDeadlineMs ?? SEND_DEADLINE_MS);
     for (const part of parts) {
-      const sent = await connector.send({
-        externalChatId: chat.externalChatId,
-        text: part.text,
-        file: part.file ? { data: part.file.data, name: part.file.name, mime: part.file.mime, kind: part.file.kind } : null,
-        replyToExternalId: ids.length ? null : replyToExternalId,
-      });
-      const msg = await this.d.store.insertFromChannel({
+      const msg = await this.d.store.insertOutboundPending({
         chat,
-        source: 'phone',
-        kind: part.file?.kind ?? 'text',
+        kind: part.kind,
         text: part.text,
-        author: null,
-        externalId: sent.externalMessageId,
-        replyToExternalId: ids.length ? null : replyToExternalId,
+        fileId: part.fileId,
+        replyToMessageId: ids.length ? null : replyToMessageId,
         senderName,
         senderUserId: input.userId,
       });
-      if (!msg) continue;
-      if (part.file) await this.d.store.setMessageFile(msg.id, part.file.id);
       ids.push(msg.id);
-      // Ответ из окна (карточка или раздел «Rf Messenger») закрывает неотвеченные.
-      await this.noteCounters(chat, { by: 'reply', messageId: msg.id, userId: input.userId });
-      try {
-        await this.deliverToAmo(msg.id);
-      } catch (err) {
-        this.d.log.warn({ messageId: msg.id, err: (err as Error).message }, 'сообщение из окна не передано в amo сразу');
-        await this.d.queue.add('to-amo', { messageId: msg.id }, { jobId: `to-amo-${msg.id}` });
-      }
+      await this.d.queue.add('to-channel', { messageId: msg.id, channelId: channel.id, deadline }, { jobId: `to-channel-${msg.id}` });
       await this.d.events?.publish(chat.accountId, { type: 'message', chatId: chat.id, messageId: msg.id });
     }
+    // Ответ из окна (карточка или раздел «Rf Messenger») закрывает неотвеченные.
+    await this.noteCounters(chat, { by: 'reply', messageId: ids.at(-1) ?? null, userId: input.userId });
     return { messageIds: ids };
   }
 
   /** Повтор недоставленного сообщения из amoCRM (кнопка «Повторить» в окне). */
   async retryMessage(accountId: number, messageId: number): Promise<boolean> {
     const msg = await this.d.store.messageById(messageId);
-    if (!msg || msg.accountId !== accountId || msg.source !== 'amo' || msg.status !== 'failed') return false;
+    if (!msg || msg.accountId !== accountId || msg.direction !== 'out' || msg.source === 'client' || msg.status !== 'failed') return false;
+    const chat = await this.d.store.chatById(msg.chatId);
+    if (!chat) return false;
     await this.d.store.requeueMessage(msg.id);
-    await this.d.queue.add('to-channel', { messageId: msg.id }, { jobId: `to-channel-${msg.id}-retry-${Date.now()}` });
+    const now = this.d.now?.() ?? Date.now();
+    await this.d.queue.add('to-channel', { messageId: msg.id, channelId: chat.channelId, deadline: now + (this.d.sendDeadlineMs ?? SEND_DEADLINE_MS) }, { jobId: `to-channel-${msg.id}-retry-${now}` });
     await this.d.events?.publish(accountId, { type: 'status', chatId: msg.chatId, messageId: msg.id, status: 'queued' });
     return true;
   }
@@ -425,6 +477,9 @@ export class Bridge {
     const file = msg.fileId ? await this.d.store.fileById(msg.fileId) : null;
     if (msg.kind !== 'text' && file) {
       message = { type: msg.kind, media: this.d.files.signedUrl(file), file_name: file.name, file_size: file.size, ...(text ? { text } : {}) };
+    } else if (msg.kind !== 'text' && text && !msg.sentAt && msg.direction === 'in' && (this.d.now?.() ?? Date.now()) - msg.createdAt.getTime() < (this.d.mediaTimeoutMs ?? 90_000) * 2 + 30_000) {
+      // Текст уходит сразу, файл ещё скачивается и придёт отдельным сообщением (to-amo-media).
+      message = { type: 'text', text };
     } else if (msg.kind !== 'text') {
       message = { type: 'text', text: `[Вложение не получено]${text ? ` ${text}` : ''}` };
     } else {
@@ -452,17 +507,10 @@ export class Bridge {
     if (!conn || !this.d.amojo) throw new Error('Канал чатов amoCRM не подключён к аккаунту');
     // Новый чат: сначала привязка к существующему контакту по номеру (если найдётся), потом сообщение.
     await this.linkNewChatToContact(chat, conn);
-    const client = this.clientUser(chat);
-    const fromPhone = msg.source === 'phone';
     // Сообщение с телефона менеджера — исходящее: отправитель — сотрудник amoCRM (ref_id), получатель — клиент.
     // amo принимает исходящее, только если отправитель — его пользователь: без ref_id ответ 400
     // «receiver: exactly one origin user must be provided». Сотрудника узнаём из вебхука amo (onAmoHook).
-    let sender: NewMessagePayload['sender'] = client;
-    if (fromPhone) {
-      const ref = chat.amoOperatorRef ?? conn.amoOperatorRef;
-      if (!ref) throw new Error('Сообщение с телефона: неизвестен сотрудник amoCRM — он определится, когда менеджер напишет клиенту из amoCRM');
-      sender = { ref_id: ref };
-    }
+    const { sender, receiver, silent } = this.amoParties(msg, chat, conn.amoOperatorRef);
     const ts = Math.floor(msg.createdAt.getTime() / 1000);
     const payload: NewMessagePayload = {
       timestamp: ts,
@@ -470,9 +518,9 @@ export class Bridge {
       msgid: ourMsgid(msg.id),
       conversation_id: chat.conversationId,
       sender,
-      ...(fromPhone ? { receiver: client } : {}),
+      ...(receiver ? { receiver } : {}),
       message: await this.amoMessage(msg, chat),
-      silent: fromPhone,
+      silent,
     };
     let r;
     try {
@@ -591,8 +639,11 @@ export class Bridge {
       senderName: sender?.name ?? null,
     });
     if (!msg) return 'duplicate';
-    const delay = await this.d.pacer.reserve(chat.id);
-    await this.d.queue.add('to-channel', { messageId: msg.id }, { jobId: `to-channel-${msg.id}`, delay });
+    const channel = await this.d.store.channelById(chat.channelId);
+    // Пауза «как человек» — только для личных аккаунтов (п. 4.5); боты и сообщества отвечают сразу.
+    const delay = channel && PACED_KINDS.has(channel.kind) ? await this.d.pacer.reserve(chat.id) : 0;
+    const deadline = (this.d.now?.() ?? Date.now()) + delay + (this.d.sendDeadlineMs ?? SEND_DEADLINE_MS);
+    await this.d.queue.add('to-channel', { messageId: msg.id, channelId: chat.channelId, deadline }, { jobId: `to-channel-${msg.id}`, delay });
     await this.d.events?.publish(accountId, { type: 'message', chatId: chat.id, messageId: msg.id });
     // Ответ из чата amoCRM (менеджер или Salesbot) закрывает неотвеченные.
     await this.noteCounters(chat, { by: 'reply', messageId: msg.id });
@@ -613,19 +664,28 @@ export class Bridge {
     await this.d.events?.publish(chat.accountId, { type: 'status', chatId: chat.id, messageId: msg.id, status: 'failed', error });
   }
 
-  /** Задача to-channel. lastAttempt — последняя попытка очереди: при ошибке сообщение помечается недоставленным. */
-  async deliverToChannel(messageId: number, lastAttempt: boolean): Promise<void> {
+  /**
+   * Задача to-channel: исходящее из amoCRM или из окна/раздела — клиенту. lastAttempt — последняя попытка очереди:
+   * при ошибке сообщение помечается недоставленным. Срок (deadline) и таймаут отправки — п. 4.3 и 4.7.
+   */
+  async deliverToChannel(messageId: number, lastAttempt: boolean, deadline: number | null = null): Promise<void> {
     const msg = await this.d.store.messageById(messageId);
-    if (!msg || msg.source !== 'amo' || msg.status !== 'queued') return;
+    if (!msg || msg.direction !== 'out' || msg.status !== 'queued') return;
     const chat = await this.d.store.chatById(msg.chatId);
     if (!chat) return;
     const channel = await this.d.store.channelById(chat.channelId);
     if (!channel) return this.fail(chat, msg, 'Канал отключён');
+    const kindText = KIND_TEXT[channel.kind] ?? channel.kind;
+    const now = this.d.now?.() ?? Date.now();
+    if (deadline && now > deadline) {
+      this.d.log.warn({ messageId: msg.id, channelId: channel.id, waitedSec: Math.round((now - msg.createdAt.getTime()) / 1000) }, 'сообщение не доставлено: вышел срок ожидания');
+      return this.fail(chat, msg, `${kindText}: сообщение не удалось отправить за ${Math.round((this.d.sendDeadlineMs ?? SEND_DEADLINE_MS) / 60_000)} мин`);
+    }
     try {
       const connector = this.d.connector(channel.id);
-      if (!connector) throw new Error('Коннектор канала не запущен');
+      if (!connector) throw new Error(`${kindText}: канал сейчас не запущен`);
       let file = null;
-      if (msg.media) {
+      if (msg.source === 'amo' && msg.media) {
         const { data, mime } = await downloadFromAmo(msg.media.url, {
           allowedDomains: this.d.amoDomains,
           maxBytes: this.d.files.maxBytes,
@@ -637,26 +697,45 @@ export class Bridge {
           : await this.d.files.save({ accountId: chat.accountId, channelId: channel.id, data, name: msg.media.name, mime });
         if (rec && !msg.fileId) await this.d.store.setMessageFile(msg.id, rec.id);
         file = { data, name: rec?.name ?? msg.media.name, mime, kind: msg.kind === 'text' ? ('file' as const) : msg.kind };
+      } else if (msg.fileId) {
+        // Из окна: файл уже у нас.
+        const rec = await this.d.store.fileById(msg.fileId);
+        if (!rec) throw new PermanentSendError('Файл не найден');
+        file = { data: await this.d.files.read(rec.id), name: rec.name, mime: rec.mime, kind: msg.kind === 'text' ? ('file' as const) : msg.kind };
       }
       const quoted = msg.replyToMessageId ? await this.d.store.messageById(msg.replyToMessageId) : null;
-      await connector.typing(chat.externalChatId);
-      if (this.d.typingMs) await sleep(this.d.typingMs);
-      const sent = await connector.send({
-        externalChatId: chat.externalChatId,
-        text: msg.text,
-        file,
-        replyToExternalId: quoted?.externalId ?? null,
-      });
-      await this.d.store.markSent(msg.id, sent.externalMessageId);
-      await this.reportStatus(chat, msg, 1);
+      if (PACED_KINDS.has(channel.kind)) {
+        await connector.typing(chat.externalChatId).catch(() => undefined);
+        if (this.d.typingMs) await sleep(this.d.typingMs);
+      }
+      const sent = await withTimeout(
+        connector.send({ externalChatId: chat.externalChatId, text: msg.text, file, replyToExternalId: quoted?.externalId ?? null, idempotencyKey: ourMsgid(msg.id) }),
+        this.d.sendTimeoutMs ?? SEND_TIMEOUT_MS,
+        `${kindText} не ответил`,
+      );
+      const updated = await this.d.store.markSent(msg.id, sent.externalMessageId);
+      // Журнал времени «принято → отправлено» (п. 4.10): без текста и номера.
+      this.d.log.info({ messageId: msg.id, channelId: channel.id, kind: channel.kind, source: msg.source, ms: (updated?.sentAt ?? new Date()).getTime() - msg.createdAt.getTime() }, 'исходящее отправлено');
+      if (msg.source === 'amo') await this.reportStatus(chat, msg, 1);
       await this.d.events?.publish(chat.accountId, { type: 'status', chatId: chat.id, messageId: msg.id, status: 'sent' });
+      if (msg.source === 'phone') {
+        // Из окна: теперь то же сообщение — в ленту amoCRM как исходящее сотрудника.
+        try {
+          await this.deliverToAmo(msg.id);
+        } catch (err) {
+          this.d.log.warn({ messageId: msg.id, err: (err as Error).message }, 'сообщение из окна не передано в amo сразу');
+          await this.d.queue.add('to-amo', { messageId: msg.id }, { jobId: `to-amo-${msg.id}` });
+        }
+      }
     } catch (err) {
-      const text = (err as Error).message;
+      const raw = (err as Error).message;
+      const text = raw.startsWith(kindText) ? raw : `${kindText}: ${raw}`;
       if (err instanceof PermanentSendError || lastAttempt) {
-        this.d.log.warn({ messageId: msg.id, channelId: channel.id, err: text }, 'сообщение не доставлено');
+        this.d.log.warn({ messageId: msg.id, channelId: channel.id, err: raw }, 'сообщение не доставлено');
         return this.fail(chat, msg, text);
       }
-      throw err;
+      this.d.log.warn({ messageId: msg.id, channelId: channel.id, err: raw }, 'отправка не удалась, будет повтор');
+      throw new Error(text);
     }
   }
 }

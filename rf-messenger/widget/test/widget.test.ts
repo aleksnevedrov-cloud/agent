@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { amojoAccountId, cardContext, MessengerApi, mountSettings, openComposer, placeSaveButton, renderComposer, renderHtml, type AmoWidgetSelf, type StatusView } from '../src/index.ts';
+import { amojoAccountId, cardContext, describeAjaxError, MessengerApi, mountSettings, openComposer, placeSaveButton, renderComposer, renderHtml, type AmoWidgetSelf, type StatusView } from '../src/index.ts';
 
 const status: StatusView = {
   amojo: { configured: true, connected: false },
@@ -60,7 +60,7 @@ describe('виджет РФ-Мессенджер', () => {
     const api = new MessengerApi(fakeSelf({}, []), 'https://chat.example.ru');
     const el = document.createElement('div');
     await mountSettings(el, api);
-    expect(el.textContent).toContain('Сервис мессенджеров недоступен (HTTP 500)');
+    expect(el.textContent).toContain('Ошибка сервиса мессенджеров (HTTP 500)');
   });
 
   it('WhatsApp: кнопка подключения, «Показать QR» до входа, QR из ответа сервера', async () => {
@@ -118,9 +118,18 @@ describe('написать первым', () => {
     expect(html).toMatch(/class="rfm-opt rfm-opt-(wa|tg|max|vk|av)"/);
   });
 
-  it('отправка: без текста — подсказка, с текстом — запрос и сообщение об успехе', async () => {
+  it('отправка: без текста — подсказка, с текстом — талон сразу, результат по талону (п. 4.1) и сообщение об успехе', async () => {
     const calls: { url: string; method?: string; data?: string }[] = [];
-    const api = new MessengerApi(fakeSelf({ 'GET /widget/v1/compose': view, 'POST /widget/v1/chats/start': { chatId: 1, messageId: 2 } }, calls), 'https://chat.example.ru');
+    let polls = 0;
+    const responses: Record<string, unknown> = { 'GET /widget/v1/compose': view, 'POST /widget/v1/chats/start': { ticket: 'job-7' } };
+    const self = fakeSelf(responses, calls);
+    const inner = self.$authorizedAjax;
+    self.$authorizedAjax = (o) => {
+      if (o.url.endsWith('/chats/start/job-7')) return Promise.resolve(++polls < 2 ? { status: 'pending' } : { status: 'done', chatId: 1, messageId: 2 });
+      return inner(o);
+    };
+    const api = new MessengerApi(self, 'https://chat.example.ru');
+    api.awaitStart = (ticket) => MessengerApi.prototype.awaitStart.call(api, ticket, 30_000, async () => undefined);
     await openComposer(api, { leadId: 90535 });
     const overlay = document.querySelector<HTMLElement>('.rfm-overlay')!;
     expect(calls[0]!.url).toBe('https://chat.example.ru/widget/v1/compose?leadId=90535');
@@ -130,11 +139,37 @@ describe('написать первым', () => {
     ta.value = 'Добрый день';
     ta.dispatchEvent(new Event('input', { bubbles: true }));
     overlay.querySelector<HTMLElement>('[data-rfm="send"]')!.click();
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(JSON.parse(calls.at(-1)!.data!)).toEqual({ channelId: 3, contactId: 1, phone: '+7 936 147-23-24', text: 'Добрый день' });
+    for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+    const start = calls.find((c) => c.method === 'POST' && c.url.endsWith('/chats/start'))!;
+    expect(JSON.parse(start.data!)).toEqual({ channelId: 3, contactId: 1, phone: '+7 936 147-23-24', text: 'Добрый день' });
+    expect(polls).toBe(2);
     expect(overlay.textContent).toContain('Сообщение отправлено');
     overlay.remove();
+  });
+
+  it('ошибка «Написать» приходит по талону и показывается менеджеру; тексты ошибок HTTP понятные (п. 4.4)', async () => {
+    const calls: { url: string; method?: string; data?: string }[] = [];
+    const self = fakeSelf({ 'GET /widget/v1/compose': view, 'POST /widget/v1/chats/start': { ticket: 'job-8' } }, calls);
+    const inner = self.$authorizedAjax;
+    self.$authorizedAjax = (o) => (o.url.endsWith('/chats/start/job-8') ? Promise.resolve({ status: 'error', error: 'VK не ответил за 20 с' }) : inner(o));
+    const api = new MessengerApi(self, 'https://chat.example.ru');
+    await openComposer(api, { leadId: 90535 });
+    const overlay = document.querySelector<HTMLElement>('.rfm-overlay')!;
+    const ta = overlay.querySelector<HTMLTextAreaElement>('textarea')!;
+    ta.value = 'Добрый день';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    overlay.querySelector<HTMLElement>('[data-rfm="send"]')!.click();
+    for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(overlay.textContent).toContain('VK не ответил за 20 с');
+    overlay.remove();
+
+    expect(describeAjaxError({ responseJSON: { error: 'Канал не найден' }, status: 422 })).toBe('Канал не найден');
+    expect(describeAjaxError({ status: 0 })).toMatch(/Нет ответа от сервиса/);
+    expect(describeAjaxError({ status: 504 })).toMatch(/не ответил вовремя \(HTTP 504\)/);
+    expect(describeAjaxError({ status: 502 })).toMatch(/HTTP 502/);
+    expect(describeAjaxError({ status: 401 })).toMatch(/обновите страницу/);
+    expect(describeAjaxError({ status: 500, responseText: '<html>bad gateway</html>' })).toBe('Ошибка сервиса мессенджеров (HTTP 500)');
+    expect(describeAjaxError({ status: 500, responseText: 'internal_error' })).toBe('Ошибка сервиса мессенджеров (HTTP 500): internal_error');
   });
 });
 
@@ -205,7 +240,7 @@ describe('этап 4: MAX, VK, Авито', () => {
     expect(renderComposer(view, { channelId: 3 })).toContain('name="phone"');
 
     const calls: { url: string; method?: string; data?: string }[] = [];
-    const api = new MessengerApi(fakeSelf({ 'GET /widget/v1/compose': view, 'POST /widget/v1/chats/start': { chatId: 11, messageId: 2 } }, calls), 'https://chat.example.ru');
+    const api = new MessengerApi(fakeSelf({ 'GET /widget/v1/compose': view, 'POST /widget/v1/chats/start': { ticket: 'job-9' }, 'GET /widget/v1/chats/start/job-9': { status: 'done', chatId: 11, messageId: 2 } }, calls), 'https://chat.example.ru');
     await openComposer(api, { leadId: 1 });
     const overlay = document.querySelector<HTMLElement>('.rfm-overlay')!;
     overlay.querySelector<HTMLElement>('[data-rfm="pick-channel"][data-id="5"]')!.click();
@@ -218,9 +253,10 @@ describe('этап 4: MAX, VK, Авито', () => {
     sel.value = '11';
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     overlay.querySelector<HTMLElement>('[data-rfm="send"]')!.click();
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(JSON.parse(calls.at(-1)!.data!)).toEqual({ channelId: 5, contactId: 1, chatId: 11, text: 'Добрый день' });
+    for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+    const start = calls.find((c) => c.method === 'POST' && c.url.endsWith('/chats/start'))!;
+    expect(JSON.parse(start.data!)).toEqual({ channelId: 5, contactId: 1, chatId: 11, text: 'Добрый день' });
+    expect(overlay.textContent).toContain('Сообщение отправлено');
     overlay.remove();
   });
 });

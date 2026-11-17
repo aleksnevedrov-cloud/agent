@@ -49,13 +49,16 @@ describe('Telegram: повторы запросов', () => {
     expect(retryDelayMs(0, new TelegramApiError(429, 'Too Many Requests', 7))).toBe(7000);
   });
 
-  it('сетевая ошибка и 5xx — повтор; после 2xx запрос не повторяется', async () => {
-    const { f, calls } = scripted(['net', errJson(502), okJson({ message_id: 9 })]);
+  it('отправка: сетевая ошибка — один повтор (п. 4.3); после 2xx запрос не повторяется; второй сбой подряд — ошибка', async () => {
+    const { f, calls } = scripted(['net', okJson({ message_id: 9 })]);
     const r = recorder();
     const c = new TelegramBotConnector('123:abc', { fetch: f, retry: r.retry });
     expect(await c.send({ externalChatId: '42', text: 'Здравствуйте', file: null, replyToExternalId: null })).toEqual({ externalMessageId: '9' });
-    expect(calls.map((x) => x.url.split('/').pop())).toEqual(['sendMessage', 'sendMessage', 'sendMessage']);
-    expect(r.delays).toEqual([1000, 2000]);
+    expect(calls.map((x) => x.url.split('/').pop())).toEqual(['sendMessage', 'sendMessage']);
+    expect(r.delays).toEqual([1000]);
+    const twice = scripted(['net', errJson(502), okJson({ message_id: 9 })]);
+    await expect(new TelegramBotConnector('123:abc', { fetch: twice.f, retry: recorder().retry }).send({ externalChatId: '42', text: 'x', file: null, replyToExternalId: null })).rejects.toThrow(/502/);
+    expect(twice.calls).toHaveLength(2);
   });
 
   it('429 ждёт retry_after из ответа', async () => {

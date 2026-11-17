@@ -99,7 +99,7 @@ describe('этап 4: подключение MAX, VK, Авито из видже
   it('«Написать»: VK и MAX — только в существующие чаты, Авито — нет; ответ без ключей', async () => {
     const started: unknown[] = [];
     const rest = { connected: async () => true, leadContacts: async () => [{ id: 1, name: 'Иван', phones: [] }], contact: async () => ({ id: 1, name: 'Иван', phones: [] }) } as unknown as import('../src/amo/rest.ts').AmoRest;
-    const app = await buildApp({ env: t.env, store: t.store, files: t.files, bridge: t.bridge, amojo: t.amojo, box: t.box, redis, rest, startChat: async (input) => (started.push(input), { chatId: 1, messageId: 2 }) });
+    const app = await buildApp({ env: t.env, store: t.store, files: t.files, bridge: t.bridge, amojo: t.amojo, box: t.box, redis, rest, startChat: async (input) => (started.push(input), { ticket: 'job-1' }) });
     const vk = (await t.store.createChannel({ accountId: ACCOUNT, kind: 'vk', title: 'РФ-Двери', externalId: '123', credentials: t.box.encrypt('{"token":"secret-vk"}') }))!;
     const avito = (await t.store.createChannel({ accountId: ACCOUNT, kind: 'avito', title: 'Авито', externalId: '777', credentials: t.box.encrypt('{}') }))!;
     await t.store.setChannelStatus(vk.id, 'connected');

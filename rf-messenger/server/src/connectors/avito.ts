@@ -1,4 +1,4 @@
-import { ApiError, fileForm, HttpClient, pause, type HttpOptions } from './http.ts';
+import { ApiError, fileForm, HttpClient, pause, SEND_CALL, type HttpOptions } from './http.ts';
 import { PermanentSendError, reconnectDelayMs, type Connector, type ConnectorSink, type InboundAttachment, type InboundEvent, type OutboundRequest } from './types.ts';
 
 /**
@@ -54,7 +54,7 @@ export class AvitoApi {
   }
 
   /** Запрос к API с токеном. На 401 токен обновляется и запрос повторяется один раз. */
-  async call<T = any>(method: 'GET' | 'POST', path: string, body?: unknown | FormData, timeoutMs = 30_000, retried = false): Promise<T> {
+  async call<T = any>(method: 'GET' | 'POST', path: string, body?: unknown | FormData, timeoutMs = 30_000, retried = false, retries?: number): Promise<T> {
     const token = await this.token(retried);
     const isForm = body instanceof FormData;
     const res = await this.http.call(`${AVITO_API}${path}`, {
@@ -62,8 +62,9 @@ export class AvitoApi {
       headers: { Authorization: `Bearer ${token}`, ...(body === undefined || isForm ? {} : { 'content-type': 'application/json' }) },
       ...(body === undefined ? {} : { body: isForm ? body : JSON.stringify(body) }),
       timeoutMs,
+      ...(retries === undefined ? {} : { retries }),
     });
-    if (res.status === 401 && !retried) return this.call<T>(method, path, body, timeoutMs, true);
+    if (res.status === 401 && !retried) return this.call<T>(method, path, body, timeoutMs, true, retries);
     if (res.status >= 400) {
       const e = res.json as { error?: { code?: number; message?: string } | string; message?: string } | null;
       const msg = typeof e?.error === 'string' ? e.error : (e?.error?.message ?? e?.message ?? `HTTP ${res.status}`);
@@ -104,7 +105,8 @@ export class AvitoApi {
   }
 
   sendText(chatId: string, text: string): Promise<{ id: string }> {
-    return this.call('POST', `/messenger/v1/accounts/${this.userId}/chats/${encodeURIComponent(chatId)}/messages`, { message: { text }, type: 'text' }, 60_000);
+    // Один запрос ≤ 10 с, один повтор (п. 4.3).
+    return this.call('POST', `/messenger/v1/accounts/${this.userId}/chats/${encodeURIComponent(chatId)}/messages`, { message: { text }, type: 'text' }, SEND_CALL.timeoutMs, false, SEND_CALL.retries);
   }
 
   async uploadImage(data: Buffer, name: string, mime: string): Promise<string> {
@@ -115,7 +117,7 @@ export class AvitoApi {
   }
 
   sendImage(chatId: string, imageId: string): Promise<{ id: string }> {
-    return this.call('POST', `/messenger/v1/accounts/${this.userId}/chats/${encodeURIComponent(chatId)}/messages/image`, { image_id: imageId }, 60_000);
+    return this.call('POST', `/messenger/v1/accounts/${this.userId}/chats/${encodeURIComponent(chatId)}/messages/image`, { image_id: imageId }, SEND_CALL.timeoutMs, false, SEND_CALL.retries);
   }
 
   async voiceUrl(voiceId: string): Promise<string | null> {

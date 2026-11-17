@@ -85,6 +85,27 @@ export type ChannelCreate =
   | { kind: 'max_phone'; idInstance: string; apiTokenInstance: string; apiUrl?: string }
   | { kind: 'avito'; clientId: string; clientSecret: string; userId: string };
 
+/**
+ * Понятный текст ошибки запроса к нашему API (п. 4.4): причина из ответа сервиса, иначе — по HTTP-коду;
+ * «Сервис мессенджеров недоступен» — только когда ответа нет совсем.
+ */
+export function describeAjaxError(err: unknown): string {
+  const e = err as { responseJSON?: { error?: string }; responseText?: string; status?: number; statusText?: string } | null;
+  const fromBody = e?.responseJSON?.error;
+  if (fromBody) return fromBody;
+  const status = Number(e?.status ?? 0);
+  if (!status) return 'Нет ответа от сервиса мессенджеров: проверьте связь или подождите минуту и повторите';
+  if (status === 504 || status === 524) return 'Сервис мессенджеров не ответил вовремя (HTTP 504) — повторите через минуту';
+  if (status === 502 || status === 503) return `Сервис мессенджеров перезапускается или недоступен (HTTP ${status}) — повторите через минуту`;
+  if (status === 401) return 'Сессия amoCRM устарела — обновите страницу';
+  if (status === 403) return 'Нет прав на это действие (HTTP 403)';
+  if (status === 404) return 'Не найдено (HTTP 404)';
+  if (status === 413) return 'Файл слишком большой (HTTP 413)';
+  if (status === 429) return 'Слишком много запросов — подождите немного (HTTP 429)';
+  const text = typeof e?.responseText === 'string' && e.responseText.length < 200 && !/^\s*</.test(e.responseText) ? `: ${e.responseText}` : '';
+  return `Ошибка сервиса мессенджеров (HTTP ${status})${text}`;
+}
+
 export class MessengerApi {
   constructor(
     private readonly self: AmoWidgetSelf,
@@ -101,8 +122,7 @@ export class MessengerApi {
         dataType: 'json',
       })) as T;
     } catch (err) {
-      const e = err as { responseJSON?: { error?: string }; status?: number };
-      throw new Error(e.responseJSON?.error ?? `Сервис мессенджеров недоступен${e.status ? ` (HTTP ${e.status})` : ''}`);
+      throw new Error(describeAjaxError(err));
     }
   }
 
@@ -131,8 +151,23 @@ export class MessengerApi {
     const qs = q.leadId ? `leadId=${q.leadId}` : `contactId=${q.contactId ?? 0}`;
     return this.call<ComposeView>('GET', `/widget/v1/compose?${qs}`);
   }
+  /** «Написать первым»: ответ сразу — талон; результат — startStatus (п. 4.1). */
   startChat(body: { channelId: number; contactId: number; phone?: string; chatId?: number; text: string }) {
-    return this.call<{ chatId: number; messageId: number }>('POST', '/widget/v1/chats/start', body);
+    return this.call<{ ticket: string }>('POST', '/widget/v1/chats/start', body);
+  }
+  startStatus(ticket: string) {
+    return this.call<{ status: 'pending' } | { status: 'done'; chatId: number; messageId: number } | { status: 'error'; error: string }>('GET', `/widget/v1/chats/start/${encodeURIComponent(ticket)}`);
+  }
+  /** Ждёт результат «Написать первым» по талону: опрос раз в 700 мс, не дольше waitMs (по умолчанию 30 с). */
+  async awaitStart(ticket: string, waitMs = 30_000, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<{ chatId: number; messageId: number }> {
+    const until = Date.now() + waitMs;
+    for (;;) {
+      const s = await this.startStatus(ticket);
+      if (s.status === 'done') return { chatId: s.chatId, messageId: s.messageId };
+      if (s.status === 'error') throw new Error(s.error);
+      if (Date.now() >= until) throw new Error('Сообщение принято, но подтверждение отправки не пришло за 30 с — проверьте переписку в чате сделки');
+      await sleep(700);
+    }
   }
   whatsappQr(id: number) {
     return this.call<WaQrView>('GET', `/widget/v1/channels/${id}/qr`);
@@ -711,7 +746,10 @@ export async function openComposer(api: MessengerApi, ctx: { leadId?: number; co
       if (!contactId) return draw('В карточке нет контакта — добавьте его');
       busy = true;
       btn.textContent = 'Отправляем…';
-      void api.startChat({ channelId: sel.channelId, contactId, ...(byChat ? { chatId: sel.chatId } : { phone: sel.phone }), text: text.trim() }).then(
+      void api
+        .startChat({ channelId: sel.channelId, contactId, ...(byChat ? { chatId: sel.chatId } : { phone: sel.phone }), text: text.trim() })
+        .then((r) => api.awaitStart(r.ticket))
+        .then(
         () => {
           overlay.innerHTML = `<style>${CSS}${CARD_CSS}</style><div class="rfm-modal"><h3>Сообщение отправлено</h3><div>Переписка появится в чате сделки. Если её не видно — обновите страницу.</div><div class="rfm-actions"><button type="button" class="rfm-btn rfm-btn-primary" data-rfm="cancel">Готово</button></div></div>`;
         },

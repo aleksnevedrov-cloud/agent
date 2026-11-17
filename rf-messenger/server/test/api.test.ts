@@ -54,7 +54,10 @@ describe('/health', () => {
     const checkedAt = new Date().toISOString();
     await redis.set(PROXY_STATUS_KEY, JSON.stringify({ status: 'ok', active: 'primary', checkedAt, latencyMs: 120, since: checkedAt }), 'EX', 60);
     const body = (await app.inject({ method: 'GET', url: '/health' })).json();
-    expect(body).toEqual({ ok: true, db: true, redis: true, amojo: true, proxy: 'ok', proxyActive: 'primary', proxyCheckedAt: checkedAt, proxyLatencyMs: 120 });
+    expect(body).toMatchObject({ ok: true, db: true, redis: true, amojo: true, proxy: 'ok', proxyActive: 'primary', proxyCheckedAt: checkedAt, proxyLatencyMs: 120 });
+    // п. 4.9: состояние каналов и очередей.
+    expect(Array.isArray(body.channels)).toBe(true);
+    expect(Array.isArray(body.queues)).toBe(true);
     await redis.del(PROXY_STATUS_KEY);
   });
 });
@@ -273,7 +276,7 @@ describe('написать первым и OAuth', () => {
     const a = await buildApp({
       env: t.env, store: t.store, files: t.files, bridge: t.bridge, amojo: t.amojo, box: t.box, redis,
       rest: restStub(),
-      startChat: async (input) => (started.push(input), { chatId: 1, messageId: 2 }),
+      startChat: async (input) => (started.push(input), { ticket: 'job-1' }),
     });
     const wa = await t.store.createChannel({ accountId: ACCOUNT, kind: 'whatsapp', title: 'WhatsApp +79295418663', externalId: '+79295418663', credentials: t.box.encrypt('{}') });
     await t.store.setChannelStatus(wa!.id, 'connected', null);
@@ -293,7 +296,16 @@ describe('написать первым и OAuth', () => {
     const body = { channelId: wa!.id, contactId: 1, phone: '+7 936 147-23-24', text: 'Добрый день', accountId: 999, userId: 1 };
     const s = await a.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: { ...h, 'content-type': 'application/json' }, payload: body });
     expect(s.statusCode).toBe(200);
+    // Ответ сразу — талон; результат виджет забирает по нему (п. 4.1).
+    expect(s.json()).toEqual({ ticket: 'job-1' });
     expect(started).toEqual([{ accountId: ACCOUNT, userId: 7, channelId: wa!.id, contactId: 1, phone: '+7 936 147-23-24', text: 'Добрый день' }]);
+    expect((await a.inject({ method: 'GET', url: '/widget/v1/chats/start/job-1', headers: h })).json()).toMatchObject({ status: 'pending' });
+    await redis.set('rfm:start:job-1', JSON.stringify({ status: 'done', chatId: 5, messageId: 9, accountId: ACCOUNT }), 'EX', 60);
+    expect((await a.inject({ method: 'GET', url: '/widget/v1/chats/start/job-1', headers: h })).json()).toMatchObject({ status: 'done', chatId: 5, messageId: 9 });
+    await redis.set('rfm:start:job-1', JSON.stringify({ status: 'done', chatId: 5, messageId: 9, accountId: 1 }), 'EX', 60);
+    expect((await a.inject({ method: 'GET', url: '/widget/v1/chats/start/job-1', headers: h })).statusCode).toBe(404);
+    expect((await a.inject({ method: 'GET', url: '/widget/v1/chats/start/nope', headers: h })).statusCode).toBe(404);
+    expect((await a.inject({ method: 'GET', url: '/widget/v1/chats/start/job-1' })).statusCode).toBe(401);
     const empty = await a.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: { ...h, 'content-type': 'application/json' }, payload: { ...body, text: ' ' } });
     expect(empty.statusCode).toBe(400);
     await a.close();
@@ -307,9 +319,13 @@ describe('написать первым и OAuth', () => {
     });
     const h = { 'x-auth-token': await token({ is_admin: false }), 'content-type': 'application/json' };
     expect((await a.inject({ method: 'GET', url: '/widget/v1/compose?contactId=1', headers: h })).json().error).toMatch(/Авторизовать/);
-    const r = await a.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: h, payload: { channelId: 1, contactId: 1, phone: '+79361472324', text: 'x' } });
+    // Канал не подключён — ответ сразу, без очереди; несуществующий канал — «не найден».
+    const r = await a.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: h, payload: { channelId: t.channel.id, contactId: 1, phone: '+79361472324', text: 'x' } });
     expect(r.statusCode).toBe(422);
-    expect(r.json().error).toMatch(/не найден/);
+    expect(r.json().error).toMatch(/не подключён/);
+    const none = await a.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: h, payload: { channelId: 99999, contactId: 1, phone: '+79361472324', text: 'x' } });
+    expect(none.statusCode).toBe(422);
+    expect(none.json().error).toMatch(/не найден/);
     await a.close();
   });
 

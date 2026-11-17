@@ -1,4 +1,4 @@
-import { ApiError, fileForm, HttpClient, pause, type HttpOptions } from './http.ts';
+import { ApiError, fileForm, HttpClient, pause, SEND_CALL, type HttpOptions } from './http.ts';
 import { splitText } from './telegram-bot.ts';
 import { PermanentSendError, reconnectDelayMs, type Connector, type ConnectorSink, type HistoryCursor, type InboundAttachment, type InboundEvent, type OutboundRequest } from './types.ts';
 
@@ -48,7 +48,7 @@ export class GreenApi {
   }
 
   /** Вызов метода. Ошибки — ApiError со статусом; в тексте нет адреса (в нём токен). */
-  async call<T = any>(method: string, body?: unknown, opts: { get?: boolean; media?: boolean; timeoutMs?: number; signal?: AbortSignal; query?: Record<string, string | number> } = {}): Promise<T> {
+  async call<T = any>(method: string, body?: unknown, opts: { get?: boolean; media?: boolean; timeoutMs?: number; signal?: AbortSignal; query?: Record<string, string | number>; retries?: number } = {}): Promise<T> {
     const isForm = body instanceof FormData;
     let url = this.url(method, opts.media);
     if (opts.query) url += `?${new URLSearchParams(Object.fromEntries(Object.entries(opts.query).map(([k, v]) => [k, String(v)])))}`;
@@ -58,6 +58,7 @@ export class GreenApi {
       ...(body === undefined ? {} : { body: isForm ? body : JSON.stringify(body) }),
       timeoutMs: opts.timeoutMs ?? 30_000,
       signal: opts.signal,
+      ...(opts.retries === undefined ? {} : { retries: opts.retries }),
     });
     if (res.status >= 400) {
       const j = res.json as { message?: string; error?: string } | string | null;
@@ -86,11 +87,12 @@ export class GreenApi {
     return this.call('checkAccount', { phoneNumber: Number(phoneDigits) }, { timeoutMs: 30_000 });
   }
   sendMessage(chatId: string, message: string, quotedMessageId?: string | null): Promise<{ idMessage: string }> {
-    return this.call('sendMessage', { chatId, message, ...(quotedMessageId ? { quotedMessageId } : {}) }, { timeoutMs: 60_000 });
+    // Один запрос ≤ 10 с, один повтор (п. 4.3).
+    return this.call('sendMessage', { chatId, message, ...(quotedMessageId ? { quotedMessageId } : {}) }, { timeoutMs: SEND_CALL.timeoutMs, retries: SEND_CALL.retries });
   }
   sendFileByUpload(chatId: string, data: Buffer, fileName: string, mime: string, caption: string, quotedMessageId?: string | null): Promise<{ idMessage: string }> {
     const form = fileForm('file', data, fileName, mime, { chatId, fileName, ...(caption ? { caption } : {}), ...(quotedMessageId ? { quotedMessageId } : {}) });
-    return this.call('sendFileByUpload', form, { media: true, timeoutMs: 180_000 });
+    return this.call('sendFileByUpload', form, { media: true, timeoutMs: 60_000, retries: SEND_CALL.retries });
   }
   /** Последние count сообщений чата (MAX отдаёт до 5000 сообщений за 3 месяца). */
   getChatHistory(chatId: string, count: number): Promise<unknown[]> {
