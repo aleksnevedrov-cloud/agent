@@ -34,6 +34,11 @@ export async function runEvalSet(d: EvalRunDeps, accountId: number, runId: numbe
   const dialogs = dialogIds.length ? EVAL_DIALOGS.filter((x) => dialogIds.includes(x.id)) : EVAL_DIALOGS;
   const results: EvalModelResult[] = models.map((ref) => ({ ref, reports: [], summary: null }));
   let fixtures: EvalFixtures | null = null;
+  const dropFixtures = async () => {
+    const fx = fixtures;
+    fixtures = null;
+    await fx?.drop().catch(() => undefined);
+  };
   try {
     const fx = await d.fixtures();
     fixtures = fx;
@@ -81,11 +86,14 @@ export async function runEvalSet(d: EvalRunDeps, accountId: number, runId: numbe
       );
       await d.evalRuns.progress(accountId, runId, results);
     }
+    // Временную схему удаляем до отметки «done»: тот, кто ждёт статус, не должен застать схему живой.
+    await dropFixtures();
     await d.evalRuns.finish(accountId, runId, { results, summary: { dialogs: dialogs.length, models: results.map((r) => ({ ref: r.ref, ...r.summary })) } });
   } catch (err) {
     d.log?.error({ err, runId }, 'eval run failed');
+    await dropFixtures();
     await d.evalRuns.finish(accountId, runId, { error: (err as Error).message });
   } finally {
-    await fixtures?.drop().catch(() => undefined);
+    await dropFixtures();
   }
 }
