@@ -32,7 +32,7 @@ ls /var/www /opt /home 2>/dev/null               # где лежат стары�
 
 ```bash
 mkdir -p /opt/ai-door && cd /opt/ai-door
-git clone https://github.com/aleksnevedrov-cloud/amo.git src   # ветка claude/new-session-j84ws6 или main
+git clone https://github.com/aleksnevedrov-cloud/agent.git src   # ветка claude/new-session-j84ws6 или main
 cd src && git checkout claude/new-session-j84ws6
 cp .env.example .env
 ```
