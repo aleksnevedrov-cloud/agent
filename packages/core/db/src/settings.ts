@@ -503,7 +503,7 @@ export const widgetSettingsSchema = z
         tag: z.string().max(100).default('Чат сайта'),
         sourceName: z.string().max(200).default('Чат на сайте rf-dveri.ru'),
         /** Ссылка на политику конфиденциальности под галочкой согласия (даёт заказчик). */
-        privacyUrl: z.string().max(500).default(''),
+        privacyUrl: z.string().max(500).default('https://www.rf-dveri.ru/soglasie-na-obrabotku-personalnyh-dannyh/'),
         /** Телефон компании в сообщении об ошибке отправки. */
         fallbackPhone: z.string().max(40).default('+7 (495) 532-49-41'),
       })
