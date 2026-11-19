@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { widgetSettingsSchema } from '@core/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AmoWidgetSelf } from '../src/amo.ts';
 import { createCallbacks, salesbotSteps } from '../src/index.tsx';
@@ -246,5 +247,48 @@ describe('модальное окно настроек интеграции', ()
     const { self } = fakeSelf('settings', {});
     const cb = createCallbacks(self, 'https://ai.test.ru');
     expect(cb.settings!({ find: () => ({ get: () => undefined }) })).toBe(true);
+  });
+});
+
+describe('вкладка «Чат сайта» (RFD-SITE-CHAT-AGENT)', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="work-area-ai_door"></div>';
+  });
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('показывает строку скрипта, диалоги и расход; включение чата уходит в настройки', async () => {
+    const { self, calls } = fakeSelf('settings', {
+      'GET /widget/v1/status': status,
+      'GET /widget/v1/settings': { settings: { ...fullSettings, siteChat: widgetSettingsSchema.parse({}).siteChat }, version: 1 },
+      'PUT /widget/v1/settings': (d?: string) => ({ settings: JSON.parse(d ?? '{}'), version: 2 }),
+      'GET /widget/v1/site-chat/overview': {
+        scriptTag: '<script src="https://ai.test.ru/site-chat/widget.js" async></script>',
+        demoUrl: 'https://ai.test.ru/site-chat/demo',
+        costTodayRub: 12.5,
+        dailyBudgetRub: 500,
+        sessions: [{ id: 'a'.repeat(32), createdAt: '2026-11-19T10:00:00Z', lastSeenAt: '2026-11-19T10:05:00Z', name: 'Павел', phone: '79261234567', state: 'handed_off', messages: 4, amoSync: 'sent', amoLeadId: 555, amoError: null, pageUrl: null }],
+      },
+    });
+    const cb = createCallbacks(self, 'https://ai.test.ru');
+    await act(async () => void cb.advancedSettings!());
+    await flush();
+    await click('Чат сайта');
+    await flush();
+    const area = document.getElementById('work-area-ai_door')!;
+    expect(area.textContent).toContain('Чат на сайте включён');
+    expect(area.querySelector<HTMLInputElement>('input[readonly]')?.value).toContain('/site-chat/widget.js');
+    expect(area.textContent).toContain('Павел, +79261234567');
+    expect(area.textContent).toContain('передан менеджеру');
+    expect(area.textContent).toContain('в amoCRM #555');
+    expect(area.textContent).toContain('12,5 ₽');
+    const toggle = [...area.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')][0]!;
+    expect(toggle.checked).toBe(false);
+    await act(async () => toggle.click());
+    await click('Сохранить');
+    await flush();
+    const put = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/settings'));
+    expect(JSON.parse(put!.data!).siteChat).toMatchObject({ enabled: true, agentEnabled: true, pipelineId: 1873498 });
   });
 });

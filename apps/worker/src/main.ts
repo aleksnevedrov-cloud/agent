@@ -17,7 +17,7 @@ import { AmoApiClient, AmoOAuth, continueBot, TokenService } from '@core/amo';
 import { CatalogImporter, CatalogRepo } from '@retail/catalog';
 import { AccountsRepo, createPool, DealFileLinksRepo, DialogRepo, DocumentsRepo, JournalRepo, MemoryRepo,
   MailAttachmentsRepo,
-  WazzupDumpRepo, WazzupRepo, OutcomesRepo, PgTokenStore, SecretsRepo, SettingsRepo, SuggestionsRepo } from '@core/db';
+  WazzupDumpRepo, WazzupRepo, OutcomesRepo, PgTokenStore, SecretsRepo, SettingsRepo, SiteChatRepo, SuggestionsRepo } from '@core/db';
 import { DocumentService, YandexVision } from '@core/docs';
 import { RetailDocuments, RetailOcr } from '@retail/ocr';
 import { DEAL_FILES_EVERY_MS, DEAL_FILES_JOB, deferFileToDisk, EmailChannel, ImapMailbox, MailRepo, runDealFilesAll, runDeferredMailFiles, SmtpSender } from '@retail/mail';
@@ -27,6 +27,8 @@ import { KnowledgeRepo } from '@retail/knowledge';
 import { amoRedirectUri, loadEnv, SecretBox, TelegramAlerter } from '@core/shared';
 import { runWazzupFiles, WAZZUP_FILES_EVERY_MS, WAZZUP_FILES_JOB } from '@retail/agent';
 import { handleReactivationReply, REACTIVATION_EVERY_MS, REACTIVATION_JOB, runReactivationAll } from '@retail/agent';
+// RFD-SITE-CHAT-AGENT: запись чата сайта в amoCRM и закрытие диалогов по простою.
+import { runSiteChatIdleAll, runSiteChatSync, SITE_CHAT_IDLE_EVERY_MS, SITE_CHAT_IDLE_JOB, SITE_CHAT_SYNC_EVERY_MS, SITE_CHAT_SYNC_JOB, type SiteTurnDeps } from '@retail/agent';
 import { reactivationDeps } from './reactivation-deps.ts';
 import { buildLocalSources } from './local-sources.ts';
 import { amoRaw, CALLS_DAY_CHECK_EVERY_MS, CALLS_DAY_JOB, CALLS_POLL_EVERY_MS, CALLS_POLL_JOB, CALLS_QUEUE, CallsRepo, DaySummariesRepo, REFUSAL_EVERY_MS, REFUSAL_JOB, RefusalsRepo, runCallsPollAll, runDaySummaryIfDue, runRefusalPollAll, type CallsDeps } from '@core/calls';
@@ -89,6 +91,9 @@ const amoClient = async (accountId: number) => {
 const llm = env.ANTHROPIC_API_KEY ? new AnthropicLlm(env.ANTHROPIC_API_KEY) : null;
 // Догон отказных сделок (RFD-AI-AGENT-REAKTIVATSIYA): отбор по разобранным отказам, отправка ботом-отправщиком.
 const reactivation = reactivationDeps(db, { settings, journal, dialog, amo: amoClient });
+// Чат сайта (RFD-SITE-CHAT-AGENT): очередь записи в amoCRM и закрытие диалогов, когда клиент ушёл.
+const siteChatRepo = new SiteChatRepo(db);
+const pricingRepo = new PricingRepo(db);
 // Ключ аккаунта (Маркетплейс) приоритетнее серверного.
 const secrets = new SecretsRepo(db, new SecretBox(env.TOKEN_ENCRYPTION_KEY));
 const wazzupDumps = new WazzupDumpRepo(db);
@@ -217,6 +222,19 @@ await callsQueue.upsertJobScheduler(REFUSAL_JOB, { every: REFUSAL_EVERY_MS }, { 
 await callsQueue.upsertJobScheduler(DEAL_FILES_JOB, { every: DEAL_FILES_EVERY_MS }, { name: DEAL_FILES_JOB, opts: { removeOnComplete: 50, removeOnFail: 50 } });
 // Догон клиента после отказа (RFD-AI-AGENT-REAKTIVATSIYA): отбор и касания раз в 10 минут.
 await callsQueue.upsertJobScheduler(REACTIVATION_JOB, { every: REACTIVATION_EVERY_MS }, { name: REACTIVATION_JOB, opts: { removeOnComplete: 50, removeOnFail: 50 } });
+// Чат сайта (RFD-SITE-CHAT-AGENT): заявки и примечания в amoCRM раз в 30 с, закрытие по простою раз в минуту.
+await callsQueue.upsertJobScheduler(SITE_CHAT_SYNC_JOB, { every: SITE_CHAT_SYNC_EVERY_MS }, { name: SITE_CHAT_SYNC_JOB, opts: { removeOnComplete: 20, removeOnFail: 50 } });
+await callsQueue.upsertJobScheduler(SITE_CHAT_IDLE_JOB, { every: SITE_CHAT_IDLE_EVERY_MS }, { name: SITE_CHAT_IDLE_JOB, opts: { removeOnComplete: 20, removeOnFail: 50 } });
+const siteTurn: SiteTurnDeps & { accountIds(): Promise<number[]> } = {
+  ai,
+  settings,
+  journal,
+  siteChat: siteChatRepo,
+  catalog,
+  knowledge,
+  pricing: async (accountId) => (await pricingRepo.get(accountId)).rules,
+  accountIds: () => settings.listAccountIds(),
+};
 const callsWorker = new Worker(
   CALLS_QUEUE,
   async (job) => {
@@ -254,6 +272,16 @@ const callsWorker = new Worker(
       const results = await runRefusalPollAll(callsDeps);
       for (const r of results) if (r.matched || r.retried || r.errors) log.info({ ...r }, 'refusal-poll: переходы в «Отказ»');
       return { accounts: results.length, analyzed: results.reduce((n, r) => n + r.analyzed, 0) };
+    }
+    if (job.name === SITE_CHAT_SYNC_JOB) {
+      const r = await runSiteChatSync({ siteChat: siteChatRepo, settings, journal, amo: async (accountId) => ({ api: await amoClient(accountId) }) });
+      if (r.leads || r.notes || r.summaries || r.tasks || r.errors) log.info({ ...r }, 'site-chat-sync: запись чата сайта в amoCRM');
+      return r;
+    }
+    if (job.name === SITE_CHAT_IDLE_JOB) {
+      const r = await runSiteChatIdleAll(siteTurn);
+      if (r.closed) log.info({ ...r }, 'site-chat-idle: диалоги закрыты по простою');
+      return r;
     }
     if (job.name === REACTIVATION_JOB) {
       const results = await runReactivationAll(reactivation);

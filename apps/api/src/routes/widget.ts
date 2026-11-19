@@ -7,6 +7,7 @@ import { widgetWazzupRoutes } from './widget-wazzup.ts';
 import { widgetLlmRoutes } from './widget-llm.ts';
 import { widgetPhase4Routes } from './widget-phase4.ts';
 import { widgetDialogRoutes } from './widget-dialog.ts';
+import { widgetSiteChatRoutes } from './widget-site-chat.ts';
 import { widgetPhase2Routes } from './widget-phase2.ts';
 import { AmoApiClient, disposableTokenAudience, verifyDisposableToken, type WidgetPrincipal } from '@core/amo';
 import { feedUrlsOf, llmModelRefSchema, widgetSettingsSchema, type JournalRow, type WidgetSettings, formatWazzupHistory, normalizePhone } from '@core/db';
@@ -392,6 +393,7 @@ export function widgetRoutes(app: FastifyInstance, deps: Deps) {
       widgetDocsRoutes(api, deps, principal);
       widgetPhase4Routes(api, deps, principal, requireAdmin);
       widgetDialogRoutes(api, deps, principal, requireAdmin);
+      widgetSiteChatRoutes(api, deps, principal);
     },
     { prefix: '/widget/v1' },
   );

@@ -326,6 +326,15 @@ export interface SettingsVersion {
   changed: string[];
 }
 
+/** RFD-SITE-CHAT-AGENT: вкладка «Чат сайта». */
+export interface SiteChatOverview {
+  scriptTag: string;
+  demoUrl: string;
+  costTodayRub: number;
+  dailyBudgetRub: number;
+  sessions: { id: string; createdAt: string; lastSeenAt: string; name: string; phone: string; state: string; messages: number; amoSync: string; amoLeadId: number | null; amoError: string | null; pageUrl: string | null }[];
+}
+
 export interface Dictionaries {
   pipelines: { id: number; name: string; statuses: { id: number; name: string }[] }[];
   taskTypes: { id: number; name: string }[];
@@ -437,6 +446,7 @@ export class WidgetApi {
   summary = (leadId: number) => this.call<{ text: string; costRub: number }>('POST', `/widget/v1/leads/${leadId}/summary`);
 
   analytics = (days: number) => this.call<AnalyticsSummary>('GET', `/widget/v1/analytics?days=${days}`);
+  siteChatOverview = () => this.call<SiteChatOverview>('GET', '/widget/v1/site-chat/overview');
   billing = () => this.call<{ months: BillingMonth[] }>('GET', '/widget/v1/billing');
   settingsHistory = () => this.call<{ items: SettingsVersion[] }>('GET', '/widget/v1/settings/history');
   settingsVersion = (id: number) => this.call<SettingsVersion & { settings: WidgetSettings }>('GET', `/widget/v1/settings/history/${id}`);

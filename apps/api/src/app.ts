@@ -9,6 +9,7 @@ import { mailFilesRoutes } from './routes/mail-files.ts';
 import { oauthRoutes } from './routes/oauth.ts';
 import { registerFormBody } from './formbody.ts';
 import { salesbotRoutes } from './routes/salesbot.ts';
+import { siteChatRoutes } from './routes/site-chat.ts';
 import { wazzupRoutes } from './routes/wazzup.ts';
 import { widgetRoutes } from './routes/widget.ts';
 
@@ -23,9 +24,11 @@ export async function buildApp(deps: Deps, opts: FastifyServerOptions = {}) {
   });
 
   // Виджет работает на домене аккаунта amo: разрешаем только такие origin.
+  // RFD-SITE-CHAT-AGENT: плюс домены сайта rf-dveri.ru для окна чата (SITE_CHAT_ORIGINS).
   await app.register(cors, {
     origin: (origin, cb) => {
       if (!origin) return cb(null, false);
+      if (deps.env.SITE_CHAT_ORIGINS.includes(origin.toLowerCase())) return cb(null, true);
       cb(null, normalizeAccountDomain(origin, deps.env.AMO_ALLOWED_DOMAINS) !== null);
     },
     allowedHeaders: ['content-type', 'x-auth-token'],
@@ -46,6 +49,7 @@ export async function buildApp(deps: Deps, opts: FastifyServerOptions = {}) {
   oauthRoutes(app, deps);
   widgetRoutes(app, deps);
   salesbotRoutes(app, deps);
+  siteChatRoutes(app, deps);
   wazzupRoutes(app, deps);
   return app;
 }

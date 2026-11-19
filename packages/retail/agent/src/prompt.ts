@@ -46,6 +46,8 @@ export interface DynamicContext {
   pricing?: string | null;
   /** Канал ответа. */
   channel?: 'chat' | 'email';
+  /** RFD-SITE-CHAT-AGENT: правила канала (чат сайта) — в кэшируемую часть, после правил магазина. */
+  extraRules?: { title: string; text: string } | null;
 }
 
 /** Системный промпт в едином формате: кэшируемая часть и переменная (дата, память) — после точки кэширования. */
@@ -54,6 +56,7 @@ export function buildSystem(s: WidgetSettings, now: Date = new Date(), dyn: Dyna
   const parts = [CORE_RULES, `Характер общения:\n${b.persona.trim()}`];
   if (b.rules.trim()) parts.push(`Правила магазина:\n${b.rules.trim()}`);
   if (b.forbiddenTopics.length) parts.push(`Запрещённые темы (не обсуждайте, мягко возвращайте к дверям): ${b.forbiddenTopics.join('; ')}.`);
+  if (dyn.extraRules?.text.trim()) parts.push(`${dyn.extraRules.title}:\n${dyn.extraRules.text.trim()}`);
   if (b.greeting.trim()) parts.push(`Если это первое сообщение клиента в диалоге, начните с приветствия: «${b.greeting.trim()}»`);
   const date = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'full', timeZone: 'Europe/Moscow' }).format(now);
   const dynamic = [`Сегодня: ${date} (Москва).`];

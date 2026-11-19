@@ -196,6 +196,93 @@ export class AmoApiClient {
     return this.request<AmoContact>('GET', `/api/v4/contacts/${id}`, undefined, { allow404: true });
   }
 
+  /**
+   * Контакты с таким телефоном: поиск amo полнотекстовый, поэтому совпадение считаем по последним 10 цифрам
+   * (8 → 7, +7 — один и тот же контакт). RFD-SITE-CHAT-AGENT.
+   */
+  async findContactsByPhone(phone: string): Promise<AmoContact[]> {
+    const key = phone.replace(/\D/g, '').slice(-10);
+    if (key.length < 10) return [];
+    const q = new URLSearchParams({ query: key, limit: '10' });
+    const res = await this.request<{ _embedded?: { contacts?: AmoContact[] } }>('GET', `/api/v4/contacts?${q}`);
+    return (res?._embedded?.contacts ?? []).filter((c) => fieldValues(c.custom_fields_values, 'PHONE').some((v) => v.replace(/\D/g, '').slice(-10) === key));
+  }
+
+  /** Дописать контакту телефон и/или почту, которых у него ещё нет; старые значения не стираются. */
+  async addContactFields(contactId: number, a: { phone?: string | null; email?: string | null }): Promise<boolean> {
+    const contact = await this.getContact(contactId);
+    if (!contact) return false;
+    const fields: { field_code: string; values: { value: string; enum_code: string }[] }[] = [];
+    const phones = fieldValues(contact.custom_fields_values, 'PHONE');
+    const emails = fieldValues(contact.custom_fields_values, 'EMAIL');
+    const phone = a.phone?.replace(/\D/g, '') ?? '';
+    const email = a.email?.toLowerCase() ?? '';
+    if (phone && !phones.some((v) => v.replace(/\D/g, '').slice(-10) === phone.slice(-10))) {
+      fields.push({ field_code: 'PHONE', values: [...phones.map((v) => ({ value: v, enum_code: 'WORK' })), { value: `+${phone}`, enum_code: 'WORK' }] });
+    }
+    if (email && !emails.some((v) => v.toLowerCase() === email)) {
+      fields.push({ field_code: 'EMAIL', values: [...emails.map((v) => ({ value: v, enum_code: 'WORK' })), { value: a.email as string, enum_code: 'WORK' }] });
+    }
+    if (!fields.length) return false;
+    await this.request('PATCH', `/api/v4/contacts/${contactId}`, { custom_fields_values: fields });
+    return true;
+  }
+
+  /**
+   * Заявка в «Неразобранном» из формы сайта: POST /api/v4/leads/unsorted/forms (RFD-SITE-CHAT-AGENT).
+   * Контакт найден → передаём его id; иначе новый контакт с именем, телефоном и почтой.
+   * Ответ amo: _embedded.unsorted[0].uid и вложенные leads/contacts — сверить на живом аккаунте (п. 0.3 ТЗ).
+   */
+  async createUnsortedForm(a: {
+    sourceName: string;
+    sourceUid: string;
+    pipelineId: number;
+    leadName: string;
+    tag?: string | null;
+    contact: { id: number } | { name: string; phone: string; email: string };
+    metadata: { formId: string; formName: string; formPage: string; referer?: string | null; ip?: string | null; sentAt: Date };
+  }): Promise<{ uid: string | null; leadId: number | null; contactId: number | null }> {
+    const contact =
+      'id' in a.contact
+        ? { id: a.contact.id }
+        : {
+            name: a.contact.name,
+            custom_fields_values: [
+              { field_code: 'PHONE', values: [{ value: `+${a.contact.phone}`, enum_code: 'WORK' }] },
+              { field_code: 'EMAIL', values: [{ value: a.contact.email, enum_code: 'WORK' }] },
+            ],
+          };
+    const res = await this.request<{
+      _embedded?: { unsorted?: { uid?: string; _embedded?: { leads?: { id: number }[]; contacts?: { id: number }[] } }[] };
+    }>('POST', '/api/v4/leads/unsorted/forms', [
+      {
+        source_name: a.sourceName,
+        source_uid: a.sourceUid,
+        pipeline_id: a.pipelineId,
+        created_at: Math.floor(a.metadata.sentAt.getTime() / 1000),
+        metadata: {
+          form_id: a.metadata.formId,
+          form_name: a.metadata.formName,
+          form_page: a.metadata.formPage,
+          form_sent_at: Math.floor(a.metadata.sentAt.getTime() / 1000),
+          ...(a.metadata.referer ? { referer: a.metadata.referer } : {}),
+          ...(a.metadata.ip ? { ip: a.metadata.ip } : {}),
+        },
+        _embedded: {
+          leads: [{ name: a.leadName, ...(a.tag ? { _embedded: { tags: [{ name: a.tag }] } } : {}) }],
+          contacts: [contact],
+        },
+      },
+    ]);
+    const u = res?._embedded?.unsorted?.[0];
+    return { uid: u?.uid ?? null, leadId: u?._embedded?.leads?.[0]?.id ?? null, contactId: u?._embedded?.contacts?.[0]?.id ?? null };
+  }
+
+  /** Обновить текст примечания (сводка Аммы обновляется, а не плодится). */
+  async updateLeadNote(leadId: number, noteId: number, text: string): Promise<void> {
+    await this.request('PATCH', `/api/v4/leads/${leadId}/notes/${noteId}`, { note_type: 'common', params: { text } });
+  }
+
   /** Последние примечания сделки (без системных). */
   async getLeadNotes(leadId: number, limit = 10): Promise<AmoNote[]> {
     const res = await this.request<{ _embedded?: { notes?: AmoNote[] } }>(

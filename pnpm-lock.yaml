@@ -295,6 +295,15 @@ importers:
         specifier: ^4.4.0
         version: 4.4.0
 
+  apps/site-chat:
+    devDependencies:
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      jsdom:
+        specifier: ^26.1.0
+        version: 26.1.0
+
   apps/widget:
     dependencies:
       react:

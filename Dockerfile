@@ -6,6 +6,7 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY apps/widget/package.json apps/widget/
+COPY apps/site-chat/package.json apps/site-chat/
 COPY apps/opt-api/package.json apps/opt-api/
 COPY apps/opt-worker/package.json apps/opt-worker/
 COPY packages/core/shared/package.json packages/core/shared/

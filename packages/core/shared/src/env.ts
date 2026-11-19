@@ -43,6 +43,14 @@ export const envSchema = z.object({
   /** Через сколько дней после отключения виджета удалять все данные аккаунта (политика конфиденциальности). */
   PURGE_UNINSTALLED_AFTER_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
 
+  /** RFD-SITE-CHAT-AGENT: origin'ы сайта, которым разрешён чат (CORS) — только эти два домена. */
+  SITE_CHAT_ORIGINS: z
+    .string()
+    .default('https://www.rf-dveri.ru,https://rf-dveri.ru')
+    .transform((s) => s.split(',').map((d) => d.trim().toLowerCase()).filter(Boolean)),
+  /** Аккаунт amoCRM, чья настройка siteChat обслуживает сайт; пусто — единственный подключённый аккаунт. */
+  SITE_CHAT_ACCOUNT_ID: z.coerce.number().int().positive().optional(),
+
   TELEGRAM_ALERT_BOT_TOKEN: z.string().optional(),
   TELEGRAM_ALERT_CHAT_ID: z.string().optional(),
 });

@@ -3,6 +3,7 @@ import type { KnowledgeRepo } from '@retail/knowledge';
 import type { PricingRules } from '@retail/pricing';
 import type { ClientMemory, MemoryPatch } from '@core/db';
 import type { z } from 'zod';
+import type { SiteLeadPort } from './site-lead-summary.ts';
 
 export interface LeadContext {
   leadId: number;
@@ -68,6 +69,8 @@ export interface ToolContext {
     ): Promise<{ group: string; name: string; price: number }[]>;
   } | null;
   memory?: MemoryPort;
+  /** RFD-SITE-CHAT-AGENT: сводка заявки чата сайта (только в канале site). */
+  siteLead?: SiteLeadPort | null;
   /** Типы и сроки задач из настроек. */
   tasks?: Partial<Record<TaskKind, { taskTypeId: number; deadlineMin: number }>>;
 }

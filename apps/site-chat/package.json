@@ -1,0 +1,16 @@
+{
+  "name": "@ai-door/site-chat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Окно чата на rf-dveri.ru на базе агента розницы (RFD-SITE-CHAT-AGENT): один файл widget.js без библиотек, Shadow DOM.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "jsdom": "^26.1.0"
+  }
+}

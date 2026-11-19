@@ -19,3 +19,4 @@ export * from './mail-attachments.ts';
 export * from './kp.ts';
 export * from './reactivation.ts';
 export * from './deal-file-links.ts';
+export * from './site-chat.ts';

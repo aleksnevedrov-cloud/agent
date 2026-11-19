@@ -27,7 +27,7 @@ import {
   OutcomesRepo,
   PgTokenStore,
   SecretsRepo,
-  WazzupDumpRepo, WazzupRepo,
+  WazzupDumpRepo, WazzupRepo, SiteChatRepo,
   SettingsRepo,
   SuggestionsRepo,
   type Db,
@@ -85,6 +85,10 @@ export interface Deps {
   secrets: SecretsRepo;
   /** Переписка из Wazzup (WhatsApp/Telegram) — история для контекста агента. */
   wazzup: WazzupRepo;
+  /** RFD-SITE-CHAT-AGENT: сессии и сообщения чата на сайте. */
+  siteChat: SiteChatRepo;
+  /** Логгер для фоновых задач (ответ агента в чате сайта); в тестах не задан. */
+  log?: { error(obj: object, msg: string): void; warn(obj: object, msg: string): void };
   /** Комплектующие конкретной двери из её карточки с TTL 24 ч (RFD-AI-AGENT-KOMPLEKTUYUWIE). */
   doorComponents: {
     forProduct(
@@ -202,6 +206,7 @@ export function createDeps(env: Env, overrides: DepsOverrides = {}): Deps {
     serverKeys,
     secrets,
     wazzup: new WazzupRepo(db),
+    siteChat: new SiteChatRepo(db),
     doorComponents: ((repo) => ({
       async forProduct(accountId: number, productId: string, url: string) {
         const cached = await repo.get(accountId, productId, 24);
