@@ -1,6 +1,6 @@
 # RFD-SITE-CHAT-AGENT — чат на rf-dveri.ru на базе агента розницы
 
-Розница, ветка `claude/site-chat` от `8d6cbdf` (голова `claude/reactivation-review`, на сервере). Заменяет Jivo: заявка с
+Розница, ветка `claude/site-chat` от `8d6cbdf`; в неё слита `claude/unsorted-callback` (`a965e9b`, «перезвон по пропущенному из Неразобранного» — на сервере тот же код как `a8f2e75`). Заменяет Jivo: заявка с
 контактами и текстом сразу в «Неразобранное» воронки «ДВЕРИ», дальше с клиентом в окне говорит агент розницы «Амма».
 Включает ТЗ RFD-SITE-CHAT (окно, форма, запись заявки) и RFD-SITE-CHAT-AGENT (агент в окне).
 
@@ -37,7 +37,7 @@
 ## 3. Выкладка на сервер
 
 ```bash
-cd /opt/ai-door/src && git status && git log -1          # на 8d6cbdf, чужих коммитов нет
+cd /opt/ai-door/src && git status && git log -1          # на a8f2e75 (перезвон по пропущенному); проверить: git diff a8f2e75 <новый коммит> -- packages/core/calls/src/unsorted-callback.ts — пусто
 git fetch origin claude/site-chat && git checkout <хеш коммита RFD-SITE-CHAT-AGENT>
 # .env: добавить (см. .env.example)
 #   SITE_CHAT_ORIGINS=https://www.rf-dveri.ru,https://rf-dveri.ru
@@ -74,7 +74,7 @@ nginx для SSE — в `server` для `ai.rf-dveri.ru` (`/etc/nginx/sites-avai
 «Чат на сайте включён». Приёмка — на `https://ai.rf-dveri.ru/site-chat/demo`; потом заказчик ставит строку скрипта
 в шаблон UMI. Jivo снимается по его решению.
 
-Откат: в виджете выключить «Чат на сайте» (окно исчезает) или убрать строку скрипта; код — `git checkout 8d6cbdf`,
+Откат: в виджете выключить «Чат на сайте» (окно исчезает) или убрать строку скрипта; код — `git checkout a8f2e75`,
 пересобрать api и worker. Таблицы `site_chat_*` остаются. Если настройки сохраняли после выкладки — в них появился
 блок `siteChat`, и строгая схема прежнего кода его не примет: удалить ключ из `widget_settings`.
 
