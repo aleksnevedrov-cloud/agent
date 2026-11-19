@@ -38,7 +38,7 @@ const KEY_OPEN = 'rfd_chat_open';
 const KEY_SOUND = 'rfd_chat_sound';
 const KEY_POPUP = 'rfd_chat_popup_done';
 const KEY_UTM = 'rfd_chat_utm';
-const COLORS = { green: '#18C139', text: '#1B1F23', grey: '#6A737D', grey2: '#959DA5', field: '#F0F3F4', error: '#F94636', orange: '#EE7A22' };
+const COLORS = { green: '#3E8914', greenDark: '#357A10', text: '#1B1F23', grey: '#6A737D', grey2: '#959DA5', field: '#F0F3F4', error: '#F94636', orange: '#EE7A22' };
 
 const script = document.currentScript as HTMLScriptElement | null;
 const apiBase = (() => {
@@ -96,8 +96,12 @@ const store = {
 };
 
 const cookie = (name: string): string | null => {
-  const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return m ? decodeURIComponent(m[1] ?? '') : null;
+  try {
+    const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+    return m ? decodeURIComponent(m[1] ?? '') : null;
+  } catch {
+    return null; // cookie недоступны (страница без домена или запрет браузера) — отправляем форму без ClientID
+  }
 };
 
 const isMobile = () => (typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 480px)').matches : window.innerWidth <= 480);
@@ -136,24 +140,28 @@ const STYLES = `
 .tab{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:2147483000;background:${COLORS.orange};color:#fff;border:0;border-radius:8px 0 0 8px;padding:14px 10px;cursor:pointer;writing-mode:vertical-rl;transform:translateY(-50%) rotate(180deg);font-size:14px;font-weight:600;letter-spacing:.2px;box-shadow:0 2px 10px rgba(0,0,0,.2)}
 .tab .dot{position:absolute;left:6px;bottom:6px;width:9px;height:9px;border-radius:50%;background:${COLORS.green};border:2px solid #fff}
 .tab .badge{position:absolute;left:-6px;top:-6px;min-width:20px;height:20px;border-radius:10px;background:${COLORS.error};color:#fff;font-size:12px;line-height:20px;text-align:center;padding:0 5px;writing-mode:horizontal-tb;transform:rotate(180deg)}
-.win{position:fixed;right:39px;bottom:0;width:336px;height:496px;max-height:calc(100vh - 20px);z-index:2147483001;background:#fff;border-radius:12px 12px 0 0;box-shadow:0 4px 24px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;color:${COLORS.text}}
-.close{position:absolute;left:-14px;top:-14px;width:28px;height:28px;border-radius:50%;background:#fff;border:0;box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer;font-size:16px;line-height:28px;color:${COLORS.grey};z-index:2}
-.wrap{position:fixed;right:39px;bottom:0;width:336px;height:0;z-index:2147483001}
-.head{position:relative;background:${COLORS.orange};color:${COLORS.text};padding:18px 20px 16px;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='60'><text x='0' y='22' font-size='18' fill='rgba(255,255,255,.18)' font-family='Arial'>двери ★ дом</text><text x='30' y='52' font-size='18' fill='rgba(255,255,255,.14)' font-family='Arial'>%26 ✓ ◇ ▲</text></svg>")}
-.head:after{content:"";position:absolute;right:0;top:0;border-style:solid;border-width:0 34px 34px 0;border-color:transparent ${COLORS.green} transparent transparent}
-.head h3{margin:0;font-size:15px;font-weight:700}
-.head p{margin:4px 0 0;font-size:12px;color:#5a3a1f}
+.win{position:fixed;right:24px;bottom:24px;width:480px;max-width:calc(100vw - 48px);height:680px;max-height:calc(100vh - 48px);z-index:2147483001;background:#fff;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.22);display:flex;flex-direction:column;overflow:hidden;color:${COLORS.text}}
+.close{position:absolute;right:14px;top:14px;width:32px;height:32px;border-radius:50%;background:transparent;border:0;cursor:pointer;font-size:24px;line-height:32px;color:#fff;z-index:2}
+.close:hover{background:rgba(255,255,255,.15)}
+.wrap{position:fixed;right:24px;bottom:24px;width:480px;max-width:calc(100vw - 48px);height:0;z-index:2147483001}
+.head{position:relative;background:${COLORS.green};color:#fff;padding:18px 56px 16px 20px;display:flex;gap:12px;align-items:flex-start}
+.head .ico{flex:none;width:36px;height:36px;margin-top:2px}
+.head h3{margin:0;font-size:19px;font-weight:700;line-height:1.2}
+.head p{margin:4px 0 0;font-size:14px;color:rgba(255,255,255,.9)}
 .body{flex:1;overflow:auto;padding:14px 16px;background:#fff}
-.field{margin:0 0 12px}
-.field label{display:block;font-size:11px;color:${COLORS.grey2};margin-bottom:2px}
-.field input,.field textarea{width:100%;border:0;border-bottom:1px solid #d9dde1;padding:7px 0;font-size:14px;color:${COLORS.text};outline:0;background:transparent;resize:none}
-.field input:focus,.field textarea:focus{border-bottom-color:${COLORS.green}}
-.field.err input,.field.err textarea{border-bottom-color:${COLORS.error}}
+.field{margin:0 0 10px}
+.field label{display:block;font-size:14px;font-weight:700;color:${COLORS.text};margin-bottom:6px}
+.field input,.field textarea{width:100%;border:1px solid #d9dde1;border-radius:8px;padding:10px 12px;font-size:15px;color:${COLORS.text};outline:0;background:#fff;resize:vertical}
+.field input::placeholder,.field textarea::placeholder{color:${COLORS.grey2}}
+.field input:focus,.field textarea:focus{border-color:${COLORS.green};box-shadow:0 0 0 2px rgba(62,137,20,.15)}
+.field.err input,.field.err textarea{border-color:${COLORS.error}}
 .hint{font-size:11px;color:${COLORS.error};min-height:14px;margin-top:2px}
-.consent{display:flex;gap:8px;align-items:flex-start;font-size:11px;color:${COLORS.grey};margin:6px 0 12px}
-.consent a{color:${COLORS.grey}}
+.consent{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:${COLORS.text};margin:6px 0 14px;line-height:1.35}
+.consent input{width:20px;height:20px;margin:1px 0 0;flex:none;accent-color:${COLORS.green}}
+.consent a{display:block;color:${COLORS.green};text-decoration:underline}
 .hp{position:absolute;left:-9999px;top:-9999px;height:0;width:0;opacity:0}
-.btn{width:100%;border:0;border-radius:6px;background:${COLORS.green};color:#fff;font-size:15px;font-weight:600;padding:12px;cursor:pointer}
+.btn{width:100%;border:0;border-radius:10px;background:${COLORS.green};color:#fff;font-size:18px;font-weight:700;padding:14px;cursor:pointer}
+.btn:hover{background:${COLORS.greenDark}}
 .btn:disabled{opacity:.5;cursor:default}
 .msgs{display:flex;flex-direction:column;gap:8px}
 .m{max-width:84%;padding:8px 12px;border-radius:14px;font-size:14px;line-height:1.35;white-space:pre-wrap;word-break:break-word}
@@ -181,7 +189,7 @@ const STYLES = `
 .sound{position:absolute;right:44px;top:14px;background:transparent;border:0;cursor:pointer;font-size:14px;opacity:.7}
 .popup{position:fixed;right:52px;bottom:24px;z-index:2147483000;background:#fff;color:${COLORS.text};border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.2);padding:12px 36px 12px 14px;font-size:13px;max-width:260px;cursor:pointer}
 .popup b{position:absolute;right:10px;top:6px;color:${COLORS.grey2};font-weight:400;cursor:pointer}
-@media (max-width:480px){.win{right:0;left:0;width:100%;height:100%;max-height:100%;border-radius:0}.wrap{right:0;width:100%}.close{left:auto;right:10px;top:10px;box-shadow:none;background:${COLORS.field}}.tab{padding:12px 8px;font-size:13px}.popup{right:12px;left:12px;max-width:none}}
+@media (max-width:480px){.win{right:0;left:0;bottom:0;width:100%;height:100%;max-height:100%;border-radius:0}.wrap{right:0;bottom:0;width:100%}.tab{padding:12px 8px;font-size:13px}.popup{right:12px;left:12px;max-width:none}}
 `;
 
 class ChatWidget {
@@ -272,11 +280,6 @@ class ChatWidget {
     store.set(KEY_OPEN, '1');
     const wrap = el('div', 'wrap');
     const win = el('div', 'win');
-    const close = el('button', 'close', '×');
-    close.type = 'button';
-    close.setAttribute('aria-label', 'Свернуть чат');
-    close.addEventListener('click', () => this.close());
-    win.appendChild(close);
     this.win = win;
     wrap.appendChild(win);
     this.root.appendChild(wrap);
@@ -295,8 +298,27 @@ class ChatWidget {
 
   private header(title: string, sub: string): HTMLDivElement {
     const h = el('div', 'head');
-    h.appendChild(el('h3', undefined, title));
-    h.appendChild(el('p', undefined, sub));
+    const ico = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    ico.setAttribute('viewBox', '0 0 24 24');
+    ico.setAttribute('class', 'ico');
+    ico.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M12 3C7 3 3 6.4 3 10.6c0 2.2 1.1 4.2 2.9 5.6L5 21l4.6-2.3c.8.2 1.6.3 2.4.3 5 0 9-3.4 9-7.6S17 3 12 3zm-4 8.6a1.2 1.2 0 1 1 0-2.4 1.2 1.2 0 0 1 0 2.4zm4 0a1.2 1.2 0 1 1 0-2.4 1.2 1.2 0 0 1 0 2.4zm4 0a1.2 1.2 0 1 1 0-2.4 1.2 1.2 0 0 1 0 2.4z');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#fff');
+    path.setAttribute('stroke-width', '1.6');
+    path.setAttribute('stroke-linejoin', 'round');
+    ico.appendChild(path);
+    h.appendChild(ico);
+    const txt = el('div');
+    txt.appendChild(el('h3', undefined, title));
+    txt.appendChild(el('p', undefined, sub));
+    h.appendChild(txt);
+    const close = el('button', 'close', '×');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Закрыть чат');
+    close.addEventListener('click', () => this.close());
+    h.appendChild(close);
     return h;
   }
 
@@ -304,7 +326,7 @@ class ChatWidget {
   private renderForm(): void {
     const win = this.win;
     if (!win) return;
-    win.appendChild(this.header('Представьтесь и начните чат!', this.cfg.online ? 'Отвечу за пару минут' : 'Оставьте сообщение'));
+    win.appendChild(this.header('Представьтесь и начните чат', this.cfg.online ? 'Ответим за пару минут' : 'Оставьте сообщение'));
     const body = el('div', 'body');
     const form = el('form');
     form.noValidate = true;
@@ -322,9 +344,9 @@ class ChatWidget {
       form.appendChild(wrap);
       return input;
     };
-    const name = f('Ваше имя*', 'text', 'name') as HTMLInputElement;
+    const name = f('Ваше имя*', 'text', 'name', 'Как к вам обращаться') as HTMLInputElement;
     name.autocomplete = 'name';
-    const email = f('Ваш e-mail*', 'email', 'email') as HTMLInputElement;
+    const email = f('Ваш e-mail*', 'email', 'email', 'example@mail.ru') as HTMLInputElement;
     email.autocomplete = 'email';
     const phone = f('Ваш телефон*', 'tel', 'phone', '+7 (___) ___-__-__') as HTMLInputElement;
     phone.autocomplete = 'tel';
@@ -333,7 +355,7 @@ class ChatWidget {
       const { pretty } = formatPhone(phone.value);
       phone.value = phone.value.trim() ? pretty : '';
     });
-    const message = f('Ваше сообщение*', 'textarea', 'message') as HTMLTextAreaElement;
+    const message = f('Ваше сообщение*', 'textarea', 'message', 'Напишите ваш вопрос') as HTMLTextAreaElement;
     // Ловушка для ботов: поле невидимо, люди его не заполняют.
     const hp = el('input');
     hp.type = 'text';
@@ -350,8 +372,7 @@ class ChatWidget {
     consentWrap.appendChild(consent);
     const ct = el('span', undefined, 'Согласен на обработку персональных данных');
     if (this.cfg.privacyUrl) {
-      ct.textContent = 'Согласен на обработку персональных данных ';
-      const a = el('a', undefined, '(политика)');
+      const a = el('a', undefined, 'Политика конфиденциальности');
       a.href = this.cfg.privacyUrl;
       a.target = '_blank';
       a.rel = 'noopener';
@@ -359,7 +380,7 @@ class ChatWidget {
     }
     consentWrap.appendChild(ct);
     form.appendChild(consentWrap);
-    const btn = el('button', 'btn', 'Начать диалог');
+    const btn = el('button', 'btn', 'Начать диалог →');
     btn.type = 'submit';
     btn.disabled = true;
     form.appendChild(btn);
@@ -421,7 +442,7 @@ class ChatWidget {
         if ((err as Error).message !== 'validation') errBox.textContent = `Не удалось отправить. Позвоните ${this.cfg.texts?.fallbackPhone ?? '+7 (495) 532-49-41'}`;
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Начать диалог';
+        btn.textContent = 'Начать диалог →';
         check();
       }
     });
@@ -584,10 +605,6 @@ class ChatWidget {
     store.set(KEY_SESSION, null);
     if (this.win) {
       this.win.textContent = '';
-      const close = el('button', 'close', '×');
-      close.type = 'button';
-      close.addEventListener('click', () => this.close());
-      this.win.appendChild(close);
       this.renderForm();
     }
   }
