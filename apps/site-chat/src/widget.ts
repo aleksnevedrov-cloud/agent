@@ -10,6 +10,8 @@ interface Config {
   texts?: { greeting: string; autoReply: string; fallbackPhone: string };
   popup?: { enabled: boolean; delaySec: number; text: string; pages: string[]; mobile: boolean };
   privacyUrl?: string;
+  /** Счётчик Яндекс Метрики для целей; null — все счётчики, найденные на странице. */
+  metrikaCounterId?: number | null;
   /** Шторка «Связаться с нами» на телефоне: ссылки на мессенджеры и почта (пусто — строки нет). */
   contacts?: { whatsapp: string; telegram: string; max: string; email: string };
   limits?: { messageMaxLen: number; messageMinIntervalMs: number };
@@ -115,6 +117,37 @@ const cookie = (name: string): string | null => {
     return null; // cookie недоступны (страница без домена или запрет браузера) — отправляем форму без ClientID
   }
 };
+
+/**
+ * Цели Яндекс Метрики — конверсии для Директа (как делал Jivo). Идентификаторы целей создаёт заказчик в Метрике
+ * (тип «JavaScript-событие»), затем выбирает их в Директе. Дублируются в dataLayer для GTM / GA.
+ */
+export const GOALS = {
+  open: 'rfd_chat_open',
+  contactOpen: 'rfd_contact_open',
+  lead: 'rfd_chat_lead',
+  message: 'rfd_chat_message',
+  handoff: 'rfd_chat_handoff',
+  callback: 'rfd_callback',
+  contact: 'rfd_contact_',
+} as const;
+type YaWin = {
+  ym?: (id: number, method: string, goal: string, params?: object) => void;
+  Ya?: { Metrika2?: { counters?: () => { id: number }[] }; _metrika?: { getCounters?: () => { id: number }[] } };
+  dataLayer?: object[];
+};
+function reachGoal(name: string, counterId: number | null | undefined, params?: Record<string, string>): void {
+  try {
+    const w = window as unknown as YaWin;
+    const ids = new Set<number>();
+    if (counterId) ids.add(counterId);
+    else for (const c of [...(w.Ya?.Metrika2?.counters?.() ?? []), ...(w.Ya?._metrika?.getCounters?.() ?? [])]) if (c?.id) ids.add(Number(c.id));
+    if (typeof w.ym === 'function') for (const id of ids) w.ym(id, 'reachGoal', name, params);
+    (w.dataLayer ??= []).push({ event: name, ...params });
+  } catch {
+    /* счётчика нет или он сломан — чат работает без целей */
+  }
+}
 
 const isMobile = () => (typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 480px)').matches : window.innerWidth <= 480);
 const fmtTime = (iso: string) => {
@@ -255,8 +288,21 @@ class ChatWidget {
   private sound = store.get(KEY_SOUND) !== 'off';
   private lastSentAt = 0;
   private audio: AudioContext | null = null;
+  /** Цель «открыл чат» — один раз за загрузку страницы. */
+  private openGoalSent = false;
 
   constructor(private readonly cfg: Config) {}
+
+  private goal(name: string, params?: Record<string, string>): void {
+    reachGoal(name, this.cfg.metrikaCounterId, params);
+  }
+
+  /** Смена состояния диалога; переход в «передан менеджеру» — цель Метрики. */
+  private applyState(next: string): void {
+    const was = this.state;
+    this.state = next;
+    if (next === 'handed_off' && was !== 'handed_off') this.goal(GOALS.handoff);
+  }
 
   mount(): void {
     this.host = el('div');
@@ -325,6 +371,10 @@ class ChatWidget {
 
   private openChat(): void {
     if (this.win) return;
+    if (!this.openGoalSent) {
+      this.openGoalSent = true;
+      this.goal(GOALS.open);
+    }
     this.tab.hidden = true;
     this.unread = 0;
     this.badge.hidden = true;
@@ -356,6 +406,7 @@ class ChatWidget {
   // ---------- Телефон: шторка «Связаться с нами» ----------
   private openSheet(): void {
     this.tab.hidden = true;
+    this.goal(GOALS.contactOpen);
     const asset = (name: string) => `${apiBase}/site-chat/assets/${name}`;
     const icon = (name: string, cls: string) => {
       const img = el('img', cls);
@@ -393,6 +444,7 @@ class ChatWidget {
       it.appendChild(icon(name, 'i'));
       it.appendChild(el('span', undefined, text));
       it.appendChild(icon('chevron.svg', 'c'));
+      if (href) it.addEventListener('click', () => this.goal(GOALS.contact + name.replace(/\..*$/, ''), { channel: text }));
       sec.appendChild(it);
       return it;
     };
@@ -481,6 +533,7 @@ class ChatWidget {
         cb.textContent = '';
         cb.appendChild(el('h4', undefined, 'Заказать звонок'));
         cb.appendChild(el('p', 'done', 'Спасибо! Менеджер перезвонит в ближайшее время.'));
+        this.goal(GOALS.callback);
       } catch (err) {
         if ((err as Error).message !== 'validation') note.textContent = `Не удалось отправить. Позвоните ${this.cfg.texts?.fallbackPhone ?? '+7 (495) 532-49-41'}`;
         btn.disabled = false;
@@ -623,12 +676,13 @@ class ChatWidget {
           throw new Error('validation');
         }
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const j = (await r.json()) as { session: string; state: string; messages: Msg[] };
+        const j = (await r.json()) as { session: string; state: string; messages: Msg[]; duplicate?: boolean };
         this.session = j.session;
         store.set(KEY_SESSION, j.session);
-        this.state = j.state;
+        this.applyState(j.state);
         this.messages = j.messages;
         this.lastId = Math.max(0, ...j.messages.map((m) => m.id));
+        if (!j.duplicate) this.goal(GOALS.lead);
         body.remove();
         win.querySelector('.head')?.remove();
         this.renderChat();
@@ -783,6 +837,7 @@ class ChatWidget {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       this.lastSentAt = Date.now();
       const j = (await r.json()) as { message: Msg };
+      this.goal(GOALS.message);
       node?.remove();
       this.lastId = Math.max(this.lastId, j.message.id);
       this.appendMessage(j.message, true);
@@ -816,7 +871,7 @@ class ChatWidget {
       }
       if (!r.ok) return;
       const j = (await r.json()) as { state: string; messages: Msg[] };
-      this.state = j.state;
+      this.applyState(j.state);
       this.messages = j.messages;
       this.lastId = Math.max(0, ...j.messages.map((m) => m.id));
     } catch {
@@ -840,7 +895,7 @@ class ChatWidget {
     es.addEventListener('message', (e) => this.onEvent(JSON.parse((e as MessageEvent).data) as { message: Msg }));
     es.addEventListener('typing', (e) => this.setTyping((JSON.parse((e as MessageEvent).data) as { on: boolean }).on));
     es.addEventListener('state', (e) => {
-      this.state = (JSON.parse((e as MessageEvent).data) as { state: string }).state;
+      this.applyState((JSON.parse((e as MessageEvent).data) as { state: string }).state);
     });
     es.addEventListener('error', () => {
       es.close();
@@ -864,7 +919,7 @@ class ChatWidget {
         if (r.ok) {
           if (this.offlineEl) this.offlineEl.hidden = true;
           const j = (await r.json()) as { state: string; messages: Msg[] };
-          this.state = j.state;
+          this.applyState(j.state);
           for (const m of j.messages) this.onEvent({ message: m });
         }
       } catch {

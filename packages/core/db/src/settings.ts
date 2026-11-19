@@ -529,6 +529,8 @@ export const widgetSettingsSchema = z
           })
           .strict()
           .default({}),
+        /** Счётчик Яндекс Метрики для целей чата (конверсии Директа); пусто — все счётчики на странице. */
+        metrikaCounterId: z.number().int().positive().nullable().default(null),
         /** Ссылка на политику конфиденциальности под галочкой согласия (даёт заказчик). */
         privacyUrl: z.string().max(500).default('https://www.rf-dveri.ru/soglasie-na-obrabotku-personalnyh-dannyh/'),
         /** Телефон компании в сообщении об ошибке отправки. */

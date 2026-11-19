@@ -169,10 +169,50 @@ describe('widget.js (RFD-SITE-CHAT-AGENT)', () => {
     expect(sessionStorage.getItem('rfd_chat_popup_done')).toBe('1');
   });
 
+  it('цели Яндекс Метрики: открыл чат, отправил форму, сообщение, передан менеджеру; счётчики находятся сами, дублируется в dataLayer', async () => {
+    const ym = vi.fn();
+    (window as unknown as { ym: unknown }).ym = ym;
+    (window as unknown as { Ya: unknown }).Ya = { Metrika2: { counters: () => [{ id: 12345 }, { id: 777 }] } };
+    (window as unknown as { dataLayer: unknown }).dataLayer = undefined;
+    try {
+      load();
+      await flush();
+      shadow().querySelector<HTMLButtonElement>('.tab')!.click();
+      shadow().querySelector<HTMLButtonElement>('.close')!.click();
+      shadow().querySelector<HTMLButtonElement>('.tab')!.click();
+      // «Открыл чат» — один раз за страницу, на оба счётчика.
+      expect(ym.mock.calls.filter((c) => c[2] === 'rfd_chat_open').map((c) => c[0])).toEqual([12345, 777]);
+      const form = shadow().querySelector('form')!;
+      const field = (n: string) => form.querySelector<HTMLInputElement>(`[name=${n}]`)!;
+      type(field('name'), 'Анна');
+      type(field('email'), 'anna@example.com');
+      type(field('phone'), '89261234567');
+      type(form.querySelector<HTMLTextAreaElement>('[name=message]')!, 'хочу дверь');
+      field('consent').checked = true;
+      field('consent').dispatchEvent(new Event('change', { bubbles: true }));
+      form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+      await flush();
+      expect(ym.mock.calls.some((c) => c[0] === 12345 && c[1] === 'reachGoal' && c[2] === 'rfd_chat_lead')).toBe(true);
+      type(shadow().querySelector<HTMLTextAreaElement>('.foot textarea')!, 'две');
+      shadow().querySelector<HTMLButtonElement>('.send')!.click();
+      await flush();
+      await flush();
+      expect(ym.mock.calls.some((c) => c[2] === 'rfd_chat_message')).toBe(true);
+      const dl = (window as unknown as { dataLayer: { event: string }[] }).dataLayer.map((x) => x.event);
+      expect(dl).toEqual(expect.arrayContaining(['rfd_chat_open', 'rfd_chat_lead', 'rfd_chat_message']));
+      expect(ym.mock.calls.some((c) => c[2] === 'rfd_chat_handoff')).toBe(false);
+    } finally {
+      delete (window as unknown as { ym?: unknown }).ym;
+      delete (window as unknown as { Ya?: unknown }).Ya;
+    }
+  });
+
   it('телефон: ярлык «Мы онлайн», по нажатию — шторка «Связаться с нами» по макету; чужие ссылки не показываются; заказ звонка уходит на /callback; «Онлайн-чат» открывает форму', async () => {
     const width = window.innerWidth;
     Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true });
-    config = { ...config, contacts: { whatsapp: 'https://wa.me/74955324941', telegram: 'https://t.me/rfdveri', max: 'https://evil.example/max', email: 'info@rf-dveri.ru' } };
+    config = { ...config, metrikaCounterId: 555, contacts: { whatsapp: 'https://wa.me/74955324941', telegram: 'https://t.me/rfdveri', max: 'https://evil.example/max', email: 'info@rf-dveri.ru' } };
+    const ym = vi.fn();
+    (window as unknown as { ym: unknown }).ym = ym;
     try {
       load();
       await flush();
@@ -199,12 +239,19 @@ describe('widget.js (RFD-SITE-CHAT-AGENT)', () => {
       const cb = calls.find((c) => c.url.endsWith('/site-chat/v1/callback'))!;
       expect(cb.body).toMatchObject({ phone: '79261234567', consent: true, website: '' });
       expect(shadow().querySelector('.cb .done')!.textContent).toContain('перезвонит');
+      sheet.querySelector<HTMLAnchorElement>('a.item')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      expect(ym.mock.calls.map((c) => [c[0], c[2]])).toEqual([
+        [555, 'rfd_contact_open'],
+        [555, 'rfd_callback'],
+        [555, 'rfd_contact_whatsapp'],
+      ]);
       sheet.querySelector<HTMLButtonElement>('button.item')!.click();
       expect(shadow().querySelector('.sheet')).toBeNull();
       expect(shadow().querySelector('form [name=name]')).not.toBeNull();
       shadow().querySelector<HTMLButtonElement>('.close')!.click();
       expect(shadow().querySelector<HTMLButtonElement>('.tab')!.hidden).toBe(false);
     } finally {
+      delete (window as unknown as { ym?: unknown }).ym;
       Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
     }
   });

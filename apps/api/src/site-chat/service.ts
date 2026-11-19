@@ -116,6 +116,7 @@ export class SiteChatService {
       popup: sc.popup,
       privacyUrl: sc.privacyUrl,
       contacts: sc.contacts,
+      metrikaCounterId: sc.metrikaCounterId,
       limits: { messageMaxLen: LIMITS.messageMaxLen, messageMinIntervalMs: LIMITS.messageMinIntervalMs },
       sessionTtlDays: SESSION_TTL_DAYS,
     };

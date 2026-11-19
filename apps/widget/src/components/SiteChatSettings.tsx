@@ -73,6 +73,17 @@ export function SiteChatSettings({ api, value, onChange }: { api: WidgetApi; val
         </div>
       </Field>
 
+      <Field
+        label="Цели Яндекс Метрики (Директ)"
+        hint="Окно отправляет цели: rfd_chat_open (открыл чат), rfd_contact_open (открыл «Связаться с нами»), rfd_chat_lead (отправил форму), rfd_chat_message (сообщение), rfd_chat_handoff (передан менеджеру), rfd_callback (заказал звонок), rfd_contact_whatsapp / rfd_contact_telegram / rfd_contact_max / rfd_contact_mail (перешёл в мессенджер). Создайте их в Метрике как «JavaScript-событие» и выберите в Директе."
+      >
+        <div style={s.row}>
+          <span>Номер счётчика</span>
+          <NumberInput value={value.metrikaCounterId} min={1} nullable onChange={(x) => onChange({ metrikaCounterId: x })} />
+          <span style={s.muted}>пусто — все счётчики на странице</span>
+        </div>
+      </Field>
+
       <Field label="Правила канала «чат сайта»" hint="Добавляются к общим правилам агента. До 4 000 символов.">
         <textarea style={{ ...s.textarea, minHeight: 160 }} value={value.rules} onChange={(e) => onChange({ rules: e.target.value.slice(0, 4000) })} />
       </Field>
