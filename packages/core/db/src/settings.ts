@@ -458,7 +458,7 @@ export const widgetSettingsSchema = z
         /** Часы ответов агента по Москве (ЧЧ:ММ); оба пустые — круглосуточно. */
         hoursFrom: z.string().regex(/^\d{2}:\d{2}$/).nullable().default(null),
         hoursTo: z.string().regex(/^\d{2}:\d{2}$/).nullable().default(null),
-        offHoursText: z.string().max(500).default('Спасибо! Сейчас нерабочее время, менеджер перезвонит утром.'),
+        offHoursText: z.string().max(500).default('Здравствуйте. У вас возникли вопросы? Мы с удовольствием ответим! Менеджер перезвонит в рабочее время.'),
         /** Правила канала site — добавляются к общим правилам агента. */
         rules: z
           .string()
@@ -480,15 +480,15 @@ export const widgetSettingsSchema = z
         handoffText: z.string().max(500).default('Передала менеджеру, он перезвонит на {phone}.'),
         /** Ответ на новые сообщения после передачи менеджеру. */
         afterHandoffText: z.string().max(500).default('Дописала в заявку, менеджер увидит.'),
-        /** Всплывание окна (перенести из настроек приглашений Jivo). */
+        /** Всплывание окна — перенесено из «Автоматических действий» Jivo (19.11.2026): через 10 с, все страницы, устройства любые. */
         popup: z
           .object({
-            enabled: z.boolean().default(false),
-            delaySec: z.number().int().min(0).max(600).default(30),
-            text: z.string().max(300).default('Здравствуйте! Подскажу по дверям — напишите, что ищете.'),
+            enabled: z.boolean().default(true),
+            delaySec: z.number().int().min(0).max(600).default(10),
+            text: z.string().max(300).default('Здравствуйте! Я могу вам чем-то помочь?'),
             /** Маски адресов страниц (подстрока или * в конце); пусто — все страницы. */
             pages: z.array(z.string().max(200)).max(50).default([]),
-            mobile: z.boolean().default(false),
+            mobile: z.boolean().default(true),
           })
           .strict()
           .default({}),
