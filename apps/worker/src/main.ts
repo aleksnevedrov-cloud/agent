@@ -31,7 +31,7 @@ import { handleReactivationReply, REACTIVATION_EVERY_MS, REACTIVATION_JOB, runRe
 import { runSiteChatIdleAll, runSiteChatSync, SITE_CHAT_IDLE_EVERY_MS, SITE_CHAT_IDLE_JOB, SITE_CHAT_SYNC_EVERY_MS, SITE_CHAT_SYNC_JOB, type SiteTurnDeps } from '@retail/agent';
 import { reactivationDeps } from './reactivation-deps.ts';
 import { buildLocalSources } from './local-sources.ts';
-import { amoRaw, CALLS_DAY_CHECK_EVERY_MS, CALLS_DAY_JOB, CALLS_POLL_EVERY_MS, CALLS_POLL_JOB, CALLS_QUEUE, CallsRepo, DaySummariesRepo, REFUSAL_EVERY_MS, REFUSAL_JOB, RefusalsRepo, runCallsPollAll, runDaySummaryIfDue, runRefusalPollAll, type CallsDeps } from '@core/calls';
+import { amoRaw, CALLS_DAY_CHECK_EVERY_MS, CALLS_DAY_JOB, CALLS_POLL_EVERY_MS, CALLS_POLL_JOB, CALLS_QUEUE, CallsRepo, DaySummariesRepo, REFUSAL_EVERY_MS, REFUSAL_JOB, RefusalsRepo, runCallsPollAll, runDaySummaryIfDue, runRefusalPollAll, runUnsortedCallbackAll, UNSORTED_CALLBACK_EVERY_MS, UNSORTED_CALLBACK_JOB, type CallsDeps } from '@core/calls';
 import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { pino } from 'pino';
@@ -235,6 +235,8 @@ const siteTurn: SiteTurnDeps & { accountIds(): Promise<number[]> } = {
   pricing: async (accountId) => (await pricingRepo.get(accountId)).rules,
   accountIds: () => settings.listAccountIds(),
 };
+// Пропущенный в «Неразобранном» → менеджер перезвонил → заявка принята на него (RFD-AI-AGENT-UNSORTED-CALLBACK): раз в 2 минуты.
+await callsQueue.upsertJobScheduler(UNSORTED_CALLBACK_JOB, { every: UNSORTED_CALLBACK_EVERY_MS }, { name: UNSORTED_CALLBACK_JOB, opts: { removeOnComplete: 50, removeOnFail: 50 } });
 const callsWorker = new Worker(
   CALLS_QUEUE,
   async (job) => {
@@ -267,6 +269,11 @@ const callsWorker = new Worker(
         log,
       );
       return { accounts: results.length, queued: results.reduce((n, r) => n + r.queued, 0) };
+    }
+    if (job.name === UNSORTED_CALLBACK_JOB) {
+      const results = await runUnsortedCallbackAll(callsDeps);
+      for (const r of results) if (r.accepted.length || r.errors.length) log.info({ ...r }, 'unsorted-callback: заявки после перезвона');
+      return { accounts: results.length, accepted: results.reduce((n, r) => n + r.accepted.length, 0) };
     }
     if (job.name === REFUSAL_JOB) {
       const results = await runRefusalPollAll(callsDeps);
