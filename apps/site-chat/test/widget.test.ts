@@ -22,6 +22,7 @@ function installFetch() {
     if (url.endsWith('/site-chat/v1/config')) return new Response(JSON.stringify(config), { status: 200 });
     if (url.endsWith('/site-chat/v1/session')) return new Response(JSON.stringify(sessionResponse), { status: 200 });
     if (url.includes('/site-chat/v1/messages')) return new Response(JSON.stringify({ state: 'active', messages: [] }), { status: 200 });
+    if (url.endsWith('/site-chat/v1/callback')) return new Response(JSON.stringify({ ok: true, duplicate: false }), { status: 200 });
     if (url.endsWith('/site-chat/v1/message')) return new Response(JSON.stringify({ message: { id: 7, author: 'client', text: body.text, products: [], at: new Date().toISOString() } }), { status: 200 });
     return new Response('{}', { status: 404 });
   }) as typeof fetch;
@@ -166,5 +167,45 @@ describe('widget.js (RFD-SITE-CHAT-AGENT)', () => {
     pop.querySelector('b')!.click();
     expect(shadow().querySelector('.popup')).toBeNull();
     expect(sessionStorage.getItem('rfd_chat_popup_done')).toBe('1');
+  });
+
+  it('телефон: ярлык «Мы онлайн», по нажатию — шторка «Связаться с нами» по макету; чужие ссылки не показываются; заказ звонка уходит на /callback; «Онлайн-чат» открывает форму', async () => {
+    const width = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true });
+    config = { ...config, contacts: { whatsapp: 'https://wa.me/74955324941', telegram: 'https://t.me/rfdveri', max: 'https://evil.example/max', email: 'info@rf-dveri.ru' } };
+    try {
+      load();
+      await flush();
+      expect(shadow().querySelector('.tab')!.textContent).toContain('Мы онлайн');
+      shadow().querySelector<HTMLButtonElement>('.tab')!.click();
+      const sheet = shadow().querySelector('.sheet')!;
+      expect(sheet.querySelector('h3')!.textContent).toBe('Связаться с нами');
+      const items = [...sheet.querySelectorAll('.item')].map((i) => [i.textContent?.trim(), (i as HTMLAnchorElement).href || null]);
+      // MAX со ссылкой не на max.ru спрятан; порядок — как в макете.
+      expect(items).toEqual([
+        ['Онлайн-чат', null],
+        ['WhatsApp', 'https://wa.me/74955324941'],
+        ['Telegram', 'https://t.me/rfdveri'],
+        ['Написать на почту', 'mailto:info@rf-dveri.ru'],
+      ]);
+      expect([...sheet.querySelectorAll('img')].every((i) => i.src.startsWith(`${API}/site-chat/assets/`))).toBe(true);
+      expect(shadow().querySelector('form.cb .note a')!.getAttribute('href')).toBe('https://www.rf-dveri.ru/policy/');
+      const btn = sheet.querySelector<HTMLButtonElement>('.cbtn')!;
+      expect(btn.disabled).toBe(true);
+      type(sheet.querySelector<HTMLInputElement>('.cb [name=phone]')!, '89261234567');
+      expect(btn.disabled).toBe(false);
+      sheet.querySelector('form.cb')!.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+      await flush();
+      const cb = calls.find((c) => c.url.endsWith('/site-chat/v1/callback'))!;
+      expect(cb.body).toMatchObject({ phone: '79261234567', consent: true, website: '' });
+      expect(shadow().querySelector('.cb .done')!.textContent).toContain('перезвонит');
+      sheet.querySelector<HTMLButtonElement>('button.item')!.click();
+      expect(shadow().querySelector('.sheet')).toBeNull();
+      expect(shadow().querySelector('form [name=name]')).not.toBeNull();
+      shadow().querySelector<HTMLButtonElement>('.close')!.click();
+      expect(shadow().querySelector<HTMLButtonElement>('.tab')!.hidden).toBe(false);
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
+    }
   });
 });

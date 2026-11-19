@@ -43,15 +43,24 @@ describe('чат сайта: config, health, CORS, демо', () => {
   it('выключен → enabled:false и 503 на форму; включён → тексты и всплывание без секретов', async () => {
     expect((await ctx.app.inject({ url: '/site-chat/v1/config' })).json()).toEqual({ enabled: false });
     expect((await post('/site-chat/v1/session', form())).statusCode).toBe(503);
-    await enable({ popup: { enabled: true, delaySec: 15, text: 'Подскажу по дверям', pages: ['/catalog/'], mobile: false }, privacyUrl: 'https://www.rf-dveri.ru/policy/' });
+    await enable({ popup: { enabled: true, delaySec: 15, text: 'Подскажу по дверям', pages: ['/catalog/'], mobile: false }, privacyUrl: 'https://www.rf-dveri.ru/policy/', contacts: { whatsapp: 'https://wa.me/74955324941', telegram: 'https://t.me/rfdveri', max: '', email: 'info@rf-dveri.ru' } });
     const cfg = (await ctx.app.inject({ url: '/site-chat/v1/config' })).json();
-    expect(cfg).toMatchObject({ enabled: true, online: true, popup: { enabled: true, delaySec: 15, pages: ['/catalog/'] }, privacyUrl: 'https://www.rf-dveri.ru/policy/' });
+    expect(cfg).toMatchObject({ enabled: true, online: true, popup: { enabled: true, delaySec: 15, pages: ['/catalog/'] }, privacyUrl: 'https://www.rf-dveri.ru/policy/', contacts: { whatsapp: 'https://wa.me/74955324941', telegram: 'https://t.me/rfdveri', max: '', email: 'info@rf-dveri.ru' } });
     expect(cfg.texts.greeting).toContain('Амма');
     expect(JSON.stringify(cfg)).not.toMatch(/sk-|token|secret/i);
     expect((await ctx.app.inject({ url: '/site-chat/v1/health' })).json()).toMatchObject({ status: 'ok', enabled: true, accountId: ACC });
     const demo = await ctx.app.inject({ url: '/site-chat/demo' });
     expect(demo.statusCode).toBe(200);
     expect(demo.body).toContain('/site-chat/widget.js');
+  });
+
+  it('иконки шторки «Связаться с нами» отдаются только по белому списку имён', async () => {
+    const ok = await ctx.app.inject({ url: '/site-chat/assets/whatsapp.svg' });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.headers['content-type']).toContain('image/svg+xml');
+    expect((await ctx.app.inject({ url: '/site-chat/assets/max.png' })).headers['content-type']).toContain('image/png');
+    expect((await ctx.app.inject({ url: '/site-chat/assets/..%2Fwidget.js' })).statusCode).toBe(404);
+    expect((await ctx.app.inject({ url: '/site-chat/assets/nope.svg' })).statusCode).toBe(404);
   });
 
   it('CORS: домены сайта разрешены, чужой — нет', async () => {
@@ -149,6 +158,23 @@ describe('чат сайта: форма → сессия → ответ аген
     expect(fourth.statusCode).toBe(429);
     expect(fourth.json()).toEqual({ error: 'too_many_sessions' });
     await ctx.app.siteChatService.idle();
+  });
+
+  it('заказ звонка со шторки: заявка с телефоном без почты, сессия handed_off (callback), задача ждёт записи, агент не вызывается; повтор — дубль', async () => {
+    const body = { phone: '+7 (926) 555-66-77', consent: true, opened_at: Date.now() - 10_000, page_url: 'https://www.rf-dveri.ru/catalog/skin-5/', utm: { utm_source: 'yandex' } };
+    const r = await post('/site-chat/v1/callback', body, '10.1.1.5');
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({ ok: true, duplicate: false });
+    const s = (await ctx.deps.siteChat.list(ACC)).find((x) => x.phone === '79265556677');
+    expect(s).toMatchObject({ name: 'Заказ звонка с сайта', email: '', state: 'handed_off', handoffReason: 'callback', amoSync: 'pending', taskSync: 'pending', utm: { utm_source: 'yandex' } });
+    await ctx.app.siteChatService.idle();
+    const msgs = await ctx.deps.siteChat.messages(s!.id);
+    expect(msgs.map((m) => [m.author, m.text])).toEqual([['client', 'Заказать звонок']]);
+    expect((await post('/site-chat/v1/callback', body, '10.1.1.5')).json()).toEqual({ ok: true, duplicate: true });
+    expect((await post('/site-chat/v1/callback', { ...body, phone: '123' }, '10.1.1.5')).statusCode).toBe(400);
+    expect((await post('/site-chat/v1/callback', { ...body, consent: false }, '10.1.1.5')).statusCode).toBe(400);
+    expect((await post('/site-chat/v1/callback', { ...body, phone: '+7 926 000-11-22', website: 'spam' }, '10.1.1.5')).json()).toEqual({ ok: true, duplicate: false });
+    expect((await ctx.deps.siteChat.list(ACC)).find((x) => x.phone === '79260001122')).toBeUndefined();
   });
 
   it('агент выключен — автоответ системным сообщением, заявка всё равно создана', async () => {

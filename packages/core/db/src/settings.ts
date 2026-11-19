@@ -516,6 +516,19 @@ export const widgetSettingsSchema = z
         pipelineId: z.number().int().positive().default(1873498),
         tag: z.string().max(100).default('Чат сайта'),
         sourceName: z.string().max(200).default('Чат на сайте rf-dveri.ru'),
+        /** Шторка «Связаться с нами» на телефоне (макет Figma «2026 / Написать / Связаться»): ссылки на мессенджеры и почта. Пусто — строка не показывается. */
+        contacts: z
+          .object({
+            /** https://wa.me/7XXXXXXXXXX */
+            whatsapp: z.string().max(300).default(''),
+            /** https://t.me/... */
+            telegram: z.string().max(300).default(''),
+            /** https://max.ru/... */
+            max: z.string().max(300).default(''),
+            email: z.string().max(120).default(''),
+          })
+          .strict()
+          .default({}),
         /** Ссылка на политику конфиденциальности под галочкой согласия (даёт заказчик). */
         privacyUrl: z.string().max(500).default('https://www.rf-dveri.ru/soglasie-na-obrabotku-personalnyh-dannyh/'),
         /** Телефон компании в сообщении об ошибке отправки. */

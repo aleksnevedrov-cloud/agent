@@ -64,6 +64,15 @@ export function SiteChatSettings({ api, value, onChange }: { api: WidgetApi; val
         </div>
       </Field>
 
+      <Field label="Связаться с нами (телефон)" hint="Шторка на телефоне по макету сайта: онлайн-чат и ссылки на мессенджеры. Пустая ссылка — строки нет. Только https://wa.me/…, https://t.me/…, https://max.ru/…">
+        <div style={s.col}>
+          <input style={s.input} placeholder="WhatsApp: https://wa.me/74955324941" value={value.contacts.whatsapp} onChange={(e) => onChange({ contacts: { ...value.contacts, whatsapp: e.target.value.trim() } })} />
+          <input style={s.input} placeholder="Telegram: https://t.me/…" value={value.contacts.telegram} onChange={(e) => onChange({ contacts: { ...value.contacts, telegram: e.target.value.trim() } })} />
+          <input style={s.input} placeholder="MAX: https://max.ru/…" value={value.contacts.max} onChange={(e) => onChange({ contacts: { ...value.contacts, max: e.target.value.trim() } })} />
+          <input style={s.input} placeholder="Почта для «Написать на почту»" value={value.contacts.email} onChange={(e) => onChange({ contacts: { ...value.contacts, email: e.target.value.trim() } })} />
+        </div>
+      </Field>
+
       <Field label="Правила канала «чат сайта»" hint="Добавляются к общим правилам агента. До 4 000 символов.">
         <textarea style={{ ...s.textarea, minHeight: 160 }} value={value.rules} onChange={(e) => onChange({ rules: e.target.value.slice(0, 4000) })} />
       </Field>

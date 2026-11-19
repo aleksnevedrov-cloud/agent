@@ -10,6 +10,8 @@ interface Config {
   texts?: { greeting: string; autoReply: string; fallbackPhone: string };
   popup?: { enabled: boolean; delaySec: number; text: string; pages: string[]; mobile: boolean };
   privacyUrl?: string;
+  /** Шторка «Связаться с нами» на телефоне: ссылки на мессенджеры и почта (пусто — строки нет). */
+  contacts?: { whatsapp: string; telegram: string; max: string; email: string };
   limits?: { messageMaxLen: number; messageMinIntervalMs: number };
   sessionTtlDays?: number;
 }
@@ -33,6 +35,16 @@ interface Msg {
 }
 
 const SITE_HOST = /(^|\.)rf-dveri\.ru$/i;
+/** Ссылки шторки «Связаться с нами» — только на сами мессенджеры (настройку вводит администратор, но окно живёт на чужом сайте). */
+const MESSENGER_HOSTS = /^(wa\.me|api\.whatsapp\.com|t\.me|telegram\.me|max\.ru|web\.max\.ru)$/i;
+function messengerUrl(u: string): string | null {
+  try {
+    const x = new URL(u.trim());
+    return x.protocol === 'https:' && MESSENGER_HOSTS.test(x.hostname) ? x.href : null;
+  } catch {
+    return null;
+  }
+}
 const KEY_SESSION = 'rfd_chat_session';
 const KEY_OPEN = 'rfd_chat_open';
 const KEY_SOUND = 'rfd_chat_sound';
@@ -140,27 +152,27 @@ const STYLES = `
 .tab{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:2147483000;background:${COLORS.orange};color:#fff;border:0;border-radius:8px 0 0 8px;padding:14px 10px;cursor:pointer;writing-mode:vertical-rl;transform:translateY(-50%) rotate(180deg);font-size:14px;font-weight:600;letter-spacing:.2px;box-shadow:0 2px 10px rgba(0,0,0,.2)}
 .tab .dot{position:absolute;left:6px;bottom:6px;width:9px;height:9px;border-radius:50%;background:${COLORS.green};border:2px solid #fff}
 .tab .badge{position:absolute;left:-6px;top:-6px;min-width:20px;height:20px;border-radius:10px;background:${COLORS.error};color:#fff;font-size:12px;line-height:20px;text-align:center;padding:0 5px;writing-mode:horizontal-tb;transform:rotate(180deg)}
-.win{position:fixed;right:24px;bottom:24px;width:400px;max-width:calc(100vw - 48px);height:600px;max-height:calc(100vh - 48px);z-index:2147483001;background:#fff;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.22);display:flex;flex-direction:column;overflow:hidden;color:${COLORS.text}}
+.win{position:fixed;right:24px;bottom:24px;width:336px;max-width:calc(100vw - 48px);height:496px;max-height:calc(100vh - 48px);z-index:2147483001;background:#fff;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.22);display:flex;flex-direction:column;overflow:hidden;color:${COLORS.text}}
 .close{position:absolute;right:14px;top:14px;width:32px;height:32px;border-radius:50%;background:transparent;border:0;cursor:pointer;font-size:24px;line-height:32px;color:#fff;z-index:2}
 .close:hover{background:rgba(255,255,255,.15)}
-.wrap{position:fixed;right:24px;bottom:24px;width:400px;max-width:calc(100vw - 48px);height:0;z-index:2147483001}
-.head{position:relative;background:${COLORS.green};color:#fff;padding:14px 52px 12px 16px;display:flex;gap:12px;align-items:flex-start}
+.wrap{position:fixed;right:24px;bottom:24px;width:336px;max-width:calc(100vw - 48px);height:0;z-index:2147483001}
+.head{position:relative;background:${COLORS.green};color:#fff;padding:12px 48px 10px 14px;display:flex;gap:12px;align-items:flex-start}
 .head .ico{flex:none;width:30px;height:30px;margin-top:2px}
-.head h3{margin:0;font-size:17px;font-weight:700;line-height:1.2}
+.head h3{margin:0;font-size:16px;font-weight:700;line-height:1.2}
 .head p{margin:4px 0 0;font-size:13px;color:rgba(255,255,255,.9)}
-.body{flex:1;overflow:auto;padding:12px 16px;background:#fff}
-.field{margin:0 0 8px}
-.field label{display:block;font-size:13px;font-weight:700;color:${COLORS.text};margin-bottom:4px}
-.field input,.field textarea{width:100%;border:1px solid #d9dde1;border-radius:8px;padding:8px 12px;font-size:14px;color:${COLORS.text};outline:0;background:#fff;resize:vertical}
+.body{flex:1;overflow:auto;padding:10px 14px;background:#fff}
+.field{margin:0 0 6px}
+.field label{display:block;font-size:12px;font-weight:700;color:${COLORS.text};margin-bottom:3px}
+.field input,.field textarea{width:100%;border:1px solid #d9dde1;border-radius:8px;padding:7px 10px;font-size:13px;color:${COLORS.text};outline:0;background:#fff;resize:vertical}
 .field input::placeholder,.field textarea::placeholder{color:${COLORS.grey2}}
 .field input:focus,.field textarea:focus{border-color:${COLORS.green};box-shadow:0 0 0 2px rgba(62,137,20,.15)}
 .field.err input,.field.err textarea{border-color:${COLORS.error}}
 .hint{font-size:11px;color:${COLORS.error};min-height:14px;margin-top:2px}
-.consent{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:${COLORS.text};margin:4px 0 10px;line-height:1.35}
+.consent{display:flex;gap:10px;align-items:flex-start;font-size:12px;color:${COLORS.text};margin:2px 0 8px;line-height:1.35}
 .consent input{width:20px;height:20px;margin:1px 0 0;flex:none;accent-color:${COLORS.green}}
 .consent a{display:block;color:${COLORS.green};text-decoration:underline}
 .hp{position:absolute;left:-9999px;top:-9999px;height:0;width:0;opacity:0}
-.btn{width:100%;border:0;border-radius:10px;background:${COLORS.green};color:#fff;font-size:16px;font-weight:700;padding:12px;cursor:pointer}
+.btn{width:100%;border:0;border-radius:10px;background:${COLORS.green};color:#fff;font-size:15px;font-weight:700;padding:10px;cursor:pointer}
 .btn:hover{background:${COLORS.greenDark}}
 .btn:disabled{opacity:.5;cursor:default}
 .msgs{display:flex;flex-direction:column;gap:8px}
@@ -189,7 +201,32 @@ const STYLES = `
 .sound{position:absolute;right:44px;top:14px;background:transparent;border:0;cursor:pointer;font-size:14px;opacity:.7}
 .popup{position:fixed;right:52px;bottom:24px;z-index:2147483000;background:#fff;color:${COLORS.text};border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.2);padding:12px 36px 12px 14px;font-size:13px;max-width:260px;cursor:pointer}
 .popup b{position:absolute;right:10px;top:6px;color:${COLORS.grey2};font-weight:400;cursor:pointer}
-@media (max-width:480px){.win{right:0;left:0;bottom:0;width:100%;height:100%;max-height:100%;border-radius:0}.wrap{right:0;bottom:0;width:100%}.tab{padding:12px 8px;font-size:13px}.popup{right:12px;left:12px;max-width:none}}
+.dim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2147483001}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-height:92vh;overflow:auto;background:#fff;border-radius:22px 22px 0 0;z-index:2147483002;color:#292828;padding-bottom:28px}
+.sheet .grip{width:40px;height:4px;border-radius:2px;background:#e0e0e0;margin:8px auto}
+.sheet .ttl{display:flex;align-items:center;gap:8px;padding:0 16px;height:48px}
+.sheet .ttl h3{flex:1;margin:0;font-size:20px;font-weight:600;line-height:28px}
+.sheet .x{width:44px;height:44px;border-radius:22px;background:#f7f7f7;border:0;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;flex:none}
+.sheet .x img{width:24px;height:24px}
+.sheet .line{height:1px;background:#2d7500;margin:12px 16px 0}
+.sheet .sec{padding:16px 16px 0;display:flex;flex-direction:column;gap:8px}
+.sheet h4{margin:0;font-size:16px;font-weight:600;line-height:24px}
+.sheet .item{display:flex;align-items:center;gap:16px;height:56px;padding:0 16px;border-radius:8px;background:#f7f7f7;color:#292828;text-decoration:none;font-size:16px;border:0;width:100%;cursor:pointer;text-align:left}
+.sheet .item .i{width:32px;height:32px;flex:none}
+.sheet .item span{flex:1}
+.sheet .item .c{width:16px;height:16px;flex:none}
+.sheet .cb{padding:16px 16px 0;display:flex;flex-direction:column;gap:12px}
+.sheet .ph{display:flex;align-items:center;gap:8px;height:48px;border:1px solid #e0e0e0;border-radius:8px;padding:0 16px}
+.sheet .ph.err{border-color:${COLORS.error}}
+.sheet .ph img{width:20px;height:20px}
+.sheet .ph input{flex:1;border:0;outline:0;font-size:16px;color:#292828;background:transparent;min-width:0}
+.sheet .cbtn{height:48px;border:0;border-radius:8px;background:#2d7500;color:#fff;font-size:16px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer}
+.sheet .cbtn img{width:20px;height:20px}
+.sheet .cbtn:disabled{opacity:.5}
+.sheet .note{font-size:12px;line-height:17px;color:#6b6b6b;margin:0}
+.sheet .note a{color:#6b6b6b}
+.sheet .done{font-size:15px;color:#2d7500;margin:0}
+@media (max-width:480px){.win{right:0;left:0;bottom:0;width:100%;max-width:100%;height:100%;max-height:100%;border-radius:0}.wrap{right:0;bottom:0;width:100%;max-width:100%}.tab{top:auto;bottom:12%;transform:rotate(180deg);padding:10px 7px;font-size:12px}.popup{right:12px;left:12px;max-width:none}}
 `;
 
 class ChatWidget {
@@ -198,6 +235,8 @@ class ChatWidget {
   private tab!: HTMLButtonElement;
   private badge!: HTMLSpanElement;
   private win: HTMLDivElement | null = null;
+  /** Шторка «Связаться с нами» (телефон): подложка с самой шторкой внутри. */
+  private sheet: HTMLDivElement | null = null;
   private body!: HTMLDivElement;
   private msgsEl!: HTMLDivElement;
   private typingEl: HTMLDivElement | null = null;
@@ -225,7 +264,8 @@ class ChatWidget {
     const style = el('style');
     style.textContent = STYLES;
     this.root.appendChild(style);
-    this.tab = el('button', 'tab', 'Напишите нам, мы онлайн!');
+    // На телефоне ярлык короче и ниже ярлыков «На складе / В салоне» карточки товара (правка заказчика 19.11.2026).
+    this.tab = el('button', 'tab', isMobile() ? 'Мы онлайн' : 'Напишите нам, мы онлайн!');
     this.tab.type = 'button';
     this.tab.setAttribute('aria-label', 'Открыть чат');
     this.tab.appendChild(el('span', 'dot'));
@@ -271,8 +311,18 @@ class ChatWidget {
     }, Math.max(0, p.delaySec) * 1000);
   }
 
+  /**
+   * Ярлык / всплывание: на компьютере — окно чата размера Jivo; на телефоне — шторка «Связаться с нами» по макету
+   * Figma «2026 / Написать / Связаться с нами / Мобильная / 390», кроме возврата в уже открытый чат.
+   */
   open(): void {
     store.set(KEY_POPUP, '1', true);
+    if (this.win || this.sheet) return;
+    if (isMobile() && !(this.session && store.get(KEY_OPEN) === '1')) this.openSheet();
+    else this.openChat();
+  }
+
+  private openChat(): void {
     if (this.win) return;
     this.tab.hidden = true;
     this.unread = 0;
@@ -288,12 +338,151 @@ class ChatWidget {
   }
 
   close(): void {
+    this.sheet?.remove();
+    this.sheet = null;
     this.win?.parentElement?.remove();
     this.win = null;
     this.input = null;
     this.typingEl = null;
     this.tab.hidden = false;
     store.set(KEY_OPEN, '0');
+  }
+
+  // ---------- Телефон: шторка «Связаться с нами» ----------
+  private openSheet(): void {
+    this.tab.hidden = true;
+    const asset = (name: string) => `${apiBase}/site-chat/assets/${name}`;
+    const icon = (name: string, cls: string) => {
+      const img = el('img', cls);
+      img.src = asset(name);
+      img.alt = '';
+      return img;
+    };
+    const dim = el('div', 'dim');
+    dim.addEventListener('click', () => this.close());
+    const sh = el('div', 'sheet');
+    sh.addEventListener('click', (e) => e.stopPropagation());
+    dim.appendChild(sh);
+    this.sheet = dim;
+    sh.appendChild(el('div', 'grip'));
+    const ttl = el('div', 'ttl');
+    ttl.appendChild(el('h3', undefined, 'Связаться с нами'));
+    const x = el('button', 'x');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Закрыть');
+    x.appendChild(icon('close.svg', ''));
+    x.addEventListener('click', () => this.close());
+    ttl.appendChild(x);
+    sh.appendChild(ttl);
+    sh.appendChild(el('div', 'line'));
+
+    const sec = el('div', 'sec');
+    sec.appendChild(el('h4', undefined, 'Написать'));
+    const row = (name: string, text: string, href: string | null) => {
+      const it = href ? el('a', 'item') : el('button', 'item');
+      if (it instanceof HTMLAnchorElement) {
+        it.href = href ?? '';
+        it.target = '_blank';
+        it.rel = 'noopener';
+      } else it.type = 'button';
+      it.appendChild(icon(name, 'i'));
+      it.appendChild(el('span', undefined, text));
+      it.appendChild(icon('chevron.svg', 'c'));
+      sec.appendChild(it);
+      return it;
+    };
+    row('chat.svg', 'Онлайн-чат', null).addEventListener('click', () => {
+      this.sheet?.remove();
+      this.sheet = null;
+      this.openChat();
+    });
+    const c = this.cfg.contacts;
+    const max = c?.max ? messengerUrl(c.max) : null;
+    const wa = c?.whatsapp ? messengerUrl(c.whatsapp) : null;
+    const tg = c?.telegram ? messengerUrl(c.telegram) : null;
+    if (max) row('max.png', 'MAX', max);
+    if (wa) row('whatsapp.svg', 'WhatsApp', wa);
+    if (tg) row('telegram.svg', 'Telegram', tg);
+    if (c?.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email)) row('mail.svg', 'Написать на почту', `mailto:${c.email}`);
+    sh.appendChild(sec);
+
+    // Заказать звонок: телефон → заявка в «Неразобранном» и задача «Перезвонить», без агента.
+    const cb = el('form', 'cb');
+    cb.noValidate = true;
+    cb.appendChild(el('h4', undefined, 'Заказать звонок'));
+    const ph = el('label', 'ph');
+    ph.appendChild(icon('phone.svg', ''));
+    const phone = el('input');
+    phone.type = 'tel';
+    phone.name = 'phone';
+    phone.placeholder = '+7 (___) ___-__-__';
+    phone.autocomplete = 'tel';
+    phone.inputMode = 'tel';
+    ph.appendChild(phone);
+    cb.appendChild(ph);
+    const hp = el('input', 'hp');
+    hp.type = 'text';
+    hp.name = 'website';
+    hp.tabIndex = -1;
+    hp.autocomplete = 'off';
+    hp.setAttribute('aria-hidden', 'true');
+    cb.appendChild(hp);
+    const btn = el('button', 'cbtn');
+    btn.type = 'submit';
+    btn.disabled = true;
+    btn.appendChild(icon('phone-white.svg', ''));
+    btn.appendChild(el('span', undefined, 'Заказать звонок'));
+    cb.appendChild(btn);
+    const note = el('p', 'note', 'Нажимая кнопку, вы соглашаетесь с ');
+    if (this.cfg.privacyUrl) {
+      const a = el('a', undefined, 'Политикой обработки персональных данных');
+      a.href = this.cfg.privacyUrl;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      note.appendChild(a);
+    } else note.appendChild(el('span', undefined, 'политикой обработки персональных данных'));
+    cb.appendChild(note);
+    phone.addEventListener('input', () => {
+      const { pretty, digits } = formatPhone(phone.value);
+      phone.value = phone.value.trim() ? pretty : '';
+      ph.classList.remove('err');
+      btn.disabled = digits.length !== 11;
+    });
+    cb.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      btn.disabled = true;
+      try {
+        const r = await fetch(`${apiBase}/site-chat/v1/callback`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            phone: formatPhone(phone.value).digits,
+            consent: true,
+            website: hp.value,
+            opened_at: this.openedAt,
+            page_url: location.href.slice(0, 2000),
+            page_title: document.title.slice(0, 300),
+            referrer: document.referrer.slice(0, 2000) || undefined,
+            utm: JSON.parse(store.get(KEY_UTM, true) ?? '{}') as Record<string, string>,
+            ym_uid: cookie('_ym_uid') ?? undefined,
+            ga_cid: cookie('_ga') ?? undefined,
+          }),
+        });
+        if (r.status === 400) {
+          ph.classList.add('err');
+          throw new Error('validation');
+        }
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        cb.textContent = '';
+        cb.appendChild(el('h4', undefined, 'Заказать звонок'));
+        cb.appendChild(el('p', 'done', 'Спасибо! Менеджер перезвонит в ближайшее время.'));
+      } catch (err) {
+        if ((err as Error).message !== 'validation') note.textContent = `Не удалось отправить. Позвоните ${this.cfg.texts?.fallbackPhone ?? '+7 (495) 532-49-41'}`;
+        btn.disabled = false;
+      }
+    });
+    sh.appendChild(cb);
+    this.root.appendChild(dim);
   }
 
   private header(title: string, sub: string): HTMLDivElement {
@@ -337,7 +526,7 @@ class ChatWidget {
       if (input instanceof HTMLInputElement) input.type = type;
       input.name = name;
       input.placeholder = placeholder;
-      if (type === 'textarea') (input as HTMLTextAreaElement).rows = 3;
+      if (type === 'textarea') (input as HTMLTextAreaElement).rows = 2;
       wrap.appendChild(lab);
       wrap.appendChild(input);
       wrap.appendChild(el('div', 'hint'));

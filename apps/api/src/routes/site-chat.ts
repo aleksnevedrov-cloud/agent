@@ -45,6 +45,21 @@ export function siteChatRoutes(app: FastifyInstance, deps: Deps, service: SiteCh
     return reply.send({ session: r.session.id, state: r.session.state === 'spam' ? 'active' : r.session.state, messages: r.messages, duplicate: r.duplicate });
   });
 
+  app.post('/site-chat/v1/callback', { bodyLimit: 8 * 1024, config: { rateLimit: { max: 30, timeWindow: '10 minutes' } } }, async (req, reply) => {
+    const r = await service.callback(req.body, { ip: ip(req), userAgent: req.headers['user-agent'] ?? null });
+    if (!r.ok) return reply.code(r.status).send({ error: r.error, ...(r.issues ? { issues: r.issues } : {}) });
+    return reply.send({ ok: true, duplicate: r.duplicate });
+  });
+
+  // Иконки шторки «Связаться с нами» (из макета Figma): только файлы из apps/site-chat/assets, имя по белому списку.
+  app.get('/site-chat/assets/:file', { config: { rateLimit: false } }, async (req, reply) => {
+    const { file } = req.params as { file: string };
+    if (!/^[a-z0-9-]{1,40}\.(svg|png)$/.test(file)) return reply.code(404).send('нет');
+    const body = widgetAsset(file);
+    if (!body) return reply.code(404).send('нет');
+    return reply.type(file.endsWith('.svg') ? 'image/svg+xml' : 'image/png').header('cache-control', 'public, max-age=86400').send(body);
+  });
+
   app.post('/site-chat/v1/message', { bodyLimit: 16 * 1024, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
     const r = await service.message(req.body);
     if (!r.ok) return reply.code(r.status).send({ error: r.error });
@@ -130,6 +145,23 @@ export function widgetScript(): string | null {
     }
   }
   cachedScript = null;
+  return null;
+}
+
+const assetCache = new Map<string, Buffer | null>();
+export function widgetAsset(file: string): Buffer | null {
+  const hit = assetCache.get(file);
+  if (hit !== undefined && process.env.NODE_ENV === 'production') return hit;
+  const candidates = [new URL(`./site-chat/assets/${file}`, import.meta.url), new URL(`../site-chat/assets/${file}`, import.meta.url), new URL(`../../../site-chat/assets/${file}`, import.meta.url)];
+  for (const u of candidates) {
+    const p = fileURLToPath(u);
+    if (existsSync(p)) {
+      const b = readFileSync(p);
+      assetCache.set(file, b);
+      return b;
+    }
+  }
+  assetCache.set(file, null);
   return null;
 }
 

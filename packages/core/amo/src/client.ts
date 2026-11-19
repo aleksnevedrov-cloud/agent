@@ -239,7 +239,7 @@ export class AmoApiClient {
     pipelineId: number;
     leadName: string;
     tag?: string | null;
-    contact: { id: number } | { name: string; phone: string; email: string };
+    contact: { id: number } | { name: string; phone: string; email?: string };
     metadata: { formId: string; formName: string; formPage: string; referer?: string | null; ip?: string | null; sentAt: Date };
   }): Promise<{ uid: string | null; leadId: number | null; contactId: number | null }> {
     const contact =
@@ -249,7 +249,7 @@ export class AmoApiClient {
             name: a.contact.name,
             custom_fields_values: [
               { field_code: 'PHONE', values: [{ value: `+${a.contact.phone}`, enum_code: 'WORK' }] },
-              { field_code: 'EMAIL', values: [{ value: a.contact.email, enum_code: 'WORK' }] },
+              ...(a.contact.email ? [{ field_code: 'EMAIL', values: [{ value: a.contact.email, enum_code: 'WORK' }] }] : []),
             ],
           };
     const res = await this.request<{

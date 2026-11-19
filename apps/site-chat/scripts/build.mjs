@@ -1,5 +1,5 @@
 // Сборка окна чата сайта в один файл: dist/widget.js (+ копия в apps/api/dist/site-chat/widget.js, откуда его отдаёт API).
-import { mkdir, writeFile, stat } from 'node:fs/promises';
+import { cp, mkdir, writeFile, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -27,5 +27,7 @@ for (const file of [...targets, ...extra]) {
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, js);
 }
+// Иконки шторки «Связаться с нами» — рядом с widget.js, их отдаёт API по /site-chat/assets/<имя>.
+for (const file of targets) await cp(join(root, 'assets'), join(dirname(file), 'assets'), { recursive: true });
 const size = (await stat(targets[0])).size;
 console.log(`site-chat/widget.js собран: ${(size / 1024).toFixed(1)} КБ → ${targets.join(', ')}`);

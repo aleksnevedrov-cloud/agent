@@ -43,6 +43,11 @@ export const sessionInput = z
   .strict();
 export type SessionInput = z.infer<typeof sessionInput>;
 
+/** Заказ звонка из шторки «Связаться с нами» (телефон): только телефон и согласие, без агента. */
+export const callbackInput = sessionInput.pick({ phone: true, consent: true, website: true, opened_at: true, page_url: true, page_title: true, referrer: true, utm: true, ym_uid: true, ga_cid: true }).strict();
+export const CALLBACK_TEXT = 'Заказать звонок';
+export const CALLBACK_NAME = 'Заказ звонка с сайта';
+
 export const messageInput = z.object({ session: z.string().regex(/^[0-9a-f]{32}$/), text: z.string().trim().min(1).max(LIMITS.messageMaxLen) }).strict();
 
 export interface SiteChatPublicMessage {
@@ -110,6 +115,7 @@ export class SiteChatService {
       texts: { greeting: sc.greeting, autoReply: online ? sc.autoReply : sc.offHoursText, fallbackPhone: sc.fallbackPhone },
       popup: sc.popup,
       privacyUrl: sc.privacyUrl,
+      contacts: sc.contacts,
       limits: { messageMaxLen: LIMITS.messageMaxLen, messageMinIntervalMs: LIMITS.messageMinIntervalMs },
       sessionTtlDays: SESSION_TTL_DAYS,
     };
@@ -165,6 +171,50 @@ export class SiteChatService {
       this.replyLater(session.id, i.message);
     }
     return { ok: true, session, messages, duplicate: false };
+  }
+
+  /**
+   * Заказ звонка: заявка в «Неразобранном» с телефоном и задача «Перезвонить» — те же лимиты и ловушки, что у формы чата.
+   * Агент не вызывается: сессия сразу handed_off (причина callback), почты нет.
+   */
+  async callback(raw: unknown, meta: { ip: string | null; userAgent: string | null }): Promise<{ ok: true; duplicate: boolean } | { ok: false; status: 400 | 429 | 503; error: string; issues?: { path: string; message: string }[] }> {
+    const parsed = callbackInput.safeParse(raw);
+    if (!parsed.success) return { ok: false, status: 400, error: 'invalid_form', issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) };
+    const i = parsed.data;
+    const phone = normalizeRuPhone(i.phone);
+    if (!phone) return { ok: false, status: 400, error: 'invalid_form', issues: [{ path: 'phone', message: 'Нужен российский номер из 11 цифр' }] };
+    const a = await this.account();
+    if (!a || !a.settings.siteChat.enabled) return { ok: false, status: 503, error: 'disabled' };
+    const now = this.now();
+    if (i.website && i.website.trim()) return { ok: true, duplicate: false };
+    if (meta.ip) {
+      const [m10, day] = await Promise.all([this.d.siteChat.countByIp(meta.ip, 10 * 60_000, now), this.d.siteChat.countByIp(meta.ip, 24 * 3600_000, now)]);
+      if (m10 >= LIMITS.sessionsPerIp10Min || day >= LIMITS.sessionsPerIpDay) return { ok: false, status: 429, error: 'too_many_sessions' };
+    }
+    if (await this.d.siteChat.findDuplicate(a.accountId, phone, CALLBACK_TEXT, LIMITS.duplicateWindowMs, now)) return { ok: true, duplicate: true };
+    const tooFast = i.opened_at !== undefined && now.getTime() - i.opened_at < LIMITS.minFormSeconds * 1000 && now.getTime() - i.opened_at >= 0;
+    const session = await this.d.siteChat.create({
+      accountId: a.accountId,
+      name: CALLBACK_NAME,
+      phone,
+      email: '',
+      consentAt: now,
+      pageUrl: i.page_url ?? null,
+      pageTitle: i.page_title ?? null,
+      referrer: i.referrer ?? null,
+      utm: pickUtm(i.utm),
+      ymUid: i.ym_uid ?? null,
+      gaCid: i.ga_cid ?? null,
+      ip: meta.ip,
+      userAgent: meta.userAgent?.slice(0, 500) ?? null,
+      state: tooFast ? 'spam' : 'handed_off',
+    });
+    await this.d.siteChat.addMessage(session.id, 'client', CALLBACK_TEXT, { sync: tooFast ? 'skipped' : 'pending' });
+    if (!tooFast) {
+      await this.d.siteChat.setState(session.id, 'handed_off', 'callback');
+      await this.d.siteChat.requestTask(session.id);
+    }
+    return { ok: true, duplicate: false };
   }
 
   async message(raw: unknown): Promise<{ ok: true; message: SiteChatPublicMessage } | { ok: false; status: 400 | 404 | 429; error: string }> {

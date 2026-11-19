@@ -94,14 +94,14 @@ export async function syncSession(d: SiteSyncDeps, api: SiteSyncApi, settings: W
   // 1. Заявка в «Неразобранном».
   if (s.amoSync === 'pending' && !s.amoLeadId) {
     const byPhone = await api.findContactsByPhone(s.phone);
-    const existing = byPhone[0] ?? (await api.findContactsByEmail(s.email))[0] ?? null;
+    const existing = byPhone[0] ?? (s.email ? (await api.findContactsByEmail(s.email))[0] : null) ?? null;
     const r = await api.createUnsortedForm({
       sourceName: sc.sourceName,
       sourceUid: SITE_SOURCE_UID,
       pipelineId: sc.pipelineId,
       leadName: leadName(s, first?.text ?? ''),
       tag: sc.tag,
-      contact: existing ? { id: existing.id } : { name: s.name, phone: s.phone, email: s.email },
+      contact: existing ? { id: existing.id } : { name: s.name, phone: s.phone, ...(s.email ? { email: s.email } : {}) },
       metadata: { formId: SITE_SOURCE_UID, formName: 'Чат на сайте', formPage: s.pageUrl ?? 'https://www.rf-dveri.ru/', referer: s.referrer, ip: s.ip, sentAt: s.createdAt },
     });
     if (!r.leadId) throw new Error('amo не вернул id сделки для заявки');
@@ -109,7 +109,7 @@ export async function syncSession(d: SiteSyncDeps, api: SiteSyncApi, settings: W
     s = { ...s, amoLeadId: r.leadId, amoContactId: existing?.id ?? r.contactId, amoSync: 'sent' };
     out.leads += 1;
     // Контакт уже был: новые телефон/почта дописываются, старые не стираются (сбой — не повод откатывать заявку).
-    if (existing) await api.addContactFields(existing.id, { phone: s.phone, email: s.email }).catch(() => false);
+    if (existing) await api.addContactFields(existing.id, { phone: s.phone, ...(s.email ? { email: s.email } : {}) }).catch(() => false);
   }
   if (!s.amoLeadId) return;
   const leadId = s.amoLeadId;
@@ -163,6 +163,7 @@ export async function syncSession(d: SiteSyncDeps, api: SiteSyncApi, settings: W
 function reasonLabel(reason: string): string {
   const map: Record<string, string> = {
     client_request: 'просит менеджера',
+    callback: 'заказ звонка с сайта',
     complaint: 'жалоба',
     discount: 'вопрос о скидке',
     custom_order: 'нестандартный заказ',
