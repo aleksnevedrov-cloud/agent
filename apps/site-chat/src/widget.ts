@@ -140,27 +140,27 @@ const STYLES = `
 .tab{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:2147483000;background:${COLORS.orange};color:#fff;border:0;border-radius:8px 0 0 8px;padding:14px 10px;cursor:pointer;writing-mode:vertical-rl;transform:translateY(-50%) rotate(180deg);font-size:14px;font-weight:600;letter-spacing:.2px;box-shadow:0 2px 10px rgba(0,0,0,.2)}
 .tab .dot{position:absolute;left:6px;bottom:6px;width:9px;height:9px;border-radius:50%;background:${COLORS.green};border:2px solid #fff}
 .tab .badge{position:absolute;left:-6px;top:-6px;min-width:20px;height:20px;border-radius:10px;background:${COLORS.error};color:#fff;font-size:12px;line-height:20px;text-align:center;padding:0 5px;writing-mode:horizontal-tb;transform:rotate(180deg)}
-.win{position:fixed;right:24px;bottom:24px;width:480px;max-width:calc(100vw - 48px);height:680px;max-height:calc(100vh - 48px);z-index:2147483001;background:#fff;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.22);display:flex;flex-direction:column;overflow:hidden;color:${COLORS.text}}
+.win{position:fixed;right:24px;bottom:24px;width:400px;max-width:calc(100vw - 48px);height:600px;max-height:calc(100vh - 48px);z-index:2147483001;background:#fff;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.22);display:flex;flex-direction:column;overflow:hidden;color:${COLORS.text}}
 .close{position:absolute;right:14px;top:14px;width:32px;height:32px;border-radius:50%;background:transparent;border:0;cursor:pointer;font-size:24px;line-height:32px;color:#fff;z-index:2}
 .close:hover{background:rgba(255,255,255,.15)}
-.wrap{position:fixed;right:24px;bottom:24px;width:480px;max-width:calc(100vw - 48px);height:0;z-index:2147483001}
-.head{position:relative;background:${COLORS.green};color:#fff;padding:18px 56px 16px 20px;display:flex;gap:12px;align-items:flex-start}
-.head .ico{flex:none;width:36px;height:36px;margin-top:2px}
-.head h3{margin:0;font-size:19px;font-weight:700;line-height:1.2}
-.head p{margin:4px 0 0;font-size:14px;color:rgba(255,255,255,.9)}
-.body{flex:1;overflow:auto;padding:14px 16px;background:#fff}
-.field{margin:0 0 10px}
-.field label{display:block;font-size:14px;font-weight:700;color:${COLORS.text};margin-bottom:6px}
-.field input,.field textarea{width:100%;border:1px solid #d9dde1;border-radius:8px;padding:10px 12px;font-size:15px;color:${COLORS.text};outline:0;background:#fff;resize:vertical}
+.wrap{position:fixed;right:24px;bottom:24px;width:400px;max-width:calc(100vw - 48px);height:0;z-index:2147483001}
+.head{position:relative;background:${COLORS.green};color:#fff;padding:14px 52px 12px 16px;display:flex;gap:12px;align-items:flex-start}
+.head .ico{flex:none;width:30px;height:30px;margin-top:2px}
+.head h3{margin:0;font-size:17px;font-weight:700;line-height:1.2}
+.head p{margin:4px 0 0;font-size:13px;color:rgba(255,255,255,.9)}
+.body{flex:1;overflow:auto;padding:12px 16px;background:#fff}
+.field{margin:0 0 8px}
+.field label{display:block;font-size:13px;font-weight:700;color:${COLORS.text};margin-bottom:4px}
+.field input,.field textarea{width:100%;border:1px solid #d9dde1;border-radius:8px;padding:8px 12px;font-size:14px;color:${COLORS.text};outline:0;background:#fff;resize:vertical}
 .field input::placeholder,.field textarea::placeholder{color:${COLORS.grey2}}
 .field input:focus,.field textarea:focus{border-color:${COLORS.green};box-shadow:0 0 0 2px rgba(62,137,20,.15)}
 .field.err input,.field.err textarea{border-color:${COLORS.error}}
 .hint{font-size:11px;color:${COLORS.error};min-height:14px;margin-top:2px}
-.consent{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:${COLORS.text};margin:6px 0 14px;line-height:1.35}
+.consent{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:${COLORS.text};margin:4px 0 10px;line-height:1.35}
 .consent input{width:20px;height:20px;margin:1px 0 0;flex:none;accent-color:${COLORS.green}}
 .consent a{display:block;color:${COLORS.green};text-decoration:underline}
 .hp{position:absolute;left:-9999px;top:-9999px;height:0;width:0;opacity:0}
-.btn{width:100%;border:0;border-radius:10px;background:${COLORS.green};color:#fff;font-size:18px;font-weight:700;padding:14px;cursor:pointer}
+.btn{width:100%;border:0;border-radius:10px;background:${COLORS.green};color:#fff;font-size:16px;font-weight:700;padding:12px;cursor:pointer}
 .btn:hover{background:${COLORS.greenDark}}
 .btn:disabled{opacity:.5;cursor:default}
 .msgs{display:flex;flex-direction:column;gap:8px}
