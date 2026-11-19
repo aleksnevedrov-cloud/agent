@@ -14,3 +14,4 @@ export * from './refusal.ts';
 export * from './repo.ts';
 export * from './stt.ts';
 export * from './transcribe.ts';
+export * from './unsorted-callback.ts';

@@ -36,7 +36,10 @@ export type JournalKind =
   | 'refusal'
   /** RFD-AI-AGENT-DEAL-FILES: файл сделки / ссылка Диска поставлены в разбор, разобраны или пропущены; ошибка — deal_file_error. */
   | 'deal_file'
-  | 'deal_file_error';
+  | 'deal_file_error'
+  /** RFD-AI-AGENT-UNSORTED-CALLBACK: заявка из «Неразобранного» принята после перезвона менеджера; ошибка — unsorted_callback_error. */
+  | 'unsorted_callback'
+  | 'unsorted_callback_error';
 
 export interface JournalEntry {
   accountId: number;

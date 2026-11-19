@@ -281,6 +281,20 @@ export const widgetSettingsSchema = z
       })
       .strict()
       .default({}),
+    /**
+     * RFD-AI-AGENT-UNSORTED-CALLBACK: пропущенный звонок лежит в «Неразобранном»; когда менеджер перезвонил клиенту,
+     * заявка принимается в сделку, ответственный сделки и контакта — тот, кто перезвонил.
+     */
+    unsortedCallback: z
+      .object({
+        enabled: z.boolean().default(true),
+        /** Воронка, чьё «Неразобранное» смотрим (по умолчанию «Двери»). */
+        pipelineId: z.number().int().positive().default(1873498),
+        /** true — только звонок со статусом «Разговор состоялся» (call_status 4); false — любой исходящий звонок менеджера. */
+        onlyTalked: z.boolean().default(false),
+      })
+      .strict()
+      .default({}),
     /** RFD-AI-AGENT-REFUSAL-ANALYSIS: анализ сделки при переносе в «Отказ». */
     refusal: z
       .object({
