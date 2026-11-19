@@ -198,7 +198,8 @@ const STYLES = `
 .send:disabled{opacity:.5}
 .offline{font-size:12px;color:${COLORS.error};text-align:center;padding:4px 10px;background:#fff6f5}
 .retry{color:#fff;text-decoration:underline;cursor:pointer;font-size:11px;margin-top:3px;display:block}
-.sound{position:absolute;right:44px;top:14px;background:transparent;border:0;cursor:pointer;font-size:14px;opacity:.7}
+.head.hc{padding-right:84px}
+.sound{position:absolute;right:48px;top:12px;background:transparent;border:0;cursor:pointer;font-size:14px;opacity:.7}
 .popup{position:fixed;right:52px;bottom:24px;z-index:2147483000;background:#fff;color:${COLORS.text};border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.2);padding:12px 36px 12px 14px;font-size:13px;max-width:260px;cursor:pointer}
 .popup b{position:absolute;right:10px;top:6px;color:${COLORS.grey2};font-weight:400;cursor:pointer}
 .dim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2147483001}
@@ -226,7 +227,7 @@ const STYLES = `
 .sheet .note{font-size:12px;line-height:17px;color:#6b6b6b;margin:0}
 .sheet .note a{color:#6b6b6b}
 .sheet .done{font-size:15px;color:#2d7500;margin:0}
-@media (max-width:480px){.win{right:0;left:0;bottom:0;width:100%;max-width:100%;height:100%;max-height:100%;border-radius:0}.wrap{right:0;bottom:0;width:100%;max-width:100%}.tab{top:auto;bottom:12%;transform:rotate(180deg);padding:10px 7px;font-size:12px}.popup{right:12px;left:12px;max-width:none}}
+@media (max-width:480px){.wrap{left:0;right:0;top:0;bottom:0;width:100%;max-width:100%;height:100%;background:rgba(0,0,0,.4)}.win{right:0;left:0;bottom:0;top:56px;width:100%;max-width:100%;height:auto;max-height:none;border-radius:22px 22px 0 0}.tab{top:auto;bottom:12%;transform:rotate(180deg);padding:10px 7px;font-size:12px}.popup{right:12px;left:12px;max-width:none}}
 `;
 
 class ChatWidget {
@@ -329,6 +330,10 @@ class ChatWidget {
     this.badge.hidden = true;
     store.set(KEY_OPEN, '1');
     const wrap = el('div', 'wrap');
+    // На телефоне сверху остаётся просвет с затемнённой страницей (правка заказчика 19.11.2026); нажатие по нему закрывает чат.
+    wrap.addEventListener('click', (e) => {
+      if (e.target === wrap) this.close();
+    });
     const win = el('div', 'win');
     this.win = win;
     wrap.appendChild(win);
@@ -655,6 +660,7 @@ class ChatWidget {
       snd.textContent = this.sound ? '🔔' : '🔕';
     });
     head.appendChild(snd);
+    head.classList.add('hc');
     win.appendChild(head);
     this.offlineEl = el('div', 'offline', 'Нет соединения, пробуем снова…');
     this.offlineEl.hidden = true;
