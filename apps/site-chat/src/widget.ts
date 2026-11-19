@@ -227,7 +227,7 @@ const STYLES = `
 .sheet .note{font-size:12px;line-height:17px;color:#6b6b6b;margin:0}
 .sheet .note a{color:#6b6b6b}
 .sheet .done{font-size:15px;color:#2d7500;margin:0}
-@media (max-width:480px){.wrap{left:0;right:0;top:0;bottom:0;width:100%;max-width:100%;height:100%;background:rgba(0,0,0,.4)}.win{right:0;left:0;bottom:0;top:56px;width:100%;max-width:100%;height:auto;max-height:none;border-radius:22px 22px 0 0}.tab{top:auto;bottom:12%;transform:rotate(180deg);padding:10px 7px;font-size:12px}.popup{right:12px;left:12px;max-width:none}}
+@media (max-width:480px){.wrap{left:0;right:0;top:0;bottom:0;width:100%;max-width:100%;height:100%;background:rgba(0,0,0,.4)}.win{right:0;left:0;bottom:0;top:56px;width:100%;max-width:100%;height:auto;max-height:none;border-radius:22px 22px 0 0}.tab{top:auto;bottom:20%;transform:rotate(180deg);padding:10px 7px;font-size:12px}.popup{right:12px;left:12px;max-width:none}}
 `;
 
 class ChatWidget {
