@@ -235,8 +235,13 @@ export interface SiteLiveResult {
   sessions: number;
   managerMessages: number;
   presenceNotes: number;
+  /** Заявки, удалённые или отклонённые в amoCRM: диалог закрыт, больше не опрашивается. */
+  gone: number;
   errors: number;
 }
+
+/** Ошибки живого прохода пишутся в журнал не чаще раза в 15 минут на диалог (проход идёт каждые 30 с). */
+const liveErrorAt = new Map<string, number>();
 
 /**
  * Дополнение 20.11.2026: живые диалоги с заявкой — раз в 30 с.
@@ -246,7 +251,7 @@ export interface SiteLiveResult {
  */
 export async function runSiteChatLive(d: SiteSyncDeps): Promise<SiteLiveResult> {
   const now = d.now?.() ?? new Date();
-  const out: SiteLiveResult = { sessions: 0, managerMessages: 0, presenceNotes: 0, errors: 0 };
+  const out: SiteLiveResult = { sessions: 0, managerMessages: 0, presenceNotes: 0, gone: 0, errors: 0 };
   const apis = new Map<number, { api: SiteSyncApi; users: Map<number, string> | null }>();
   for (let s of await d.siteChat.liveWithLead(now)) {
     const leadId = s.amoLeadId;
@@ -292,8 +297,22 @@ export async function runSiteChatLive(d: SiteSyncDeps): Promise<SiteLiveResult> 
         }
       }
     } catch (err) {
+      const message = (err as Error).message;
+      // Заявку отклонили или удалили (на приёмке 20.11.2026 отклонённые тестовые заявки давали ошибку каждые 30 с).
+      if (/HTTP (400|404)/.test(message)) {
+        const lead = await apis.get(s.accountId)?.api.getLead(leadId).catch(() => undefined);
+        if (lead === null) {
+          await d.siteChat.markLeadGone(s.id, `заявка #${leadId} удалена или отклонена в amoCRM`);
+          out.gone += 1;
+          continue;
+        }
+      }
       out.errors += 1;
-      await d.journal.add({ accountId: s.accountId, leadId, kind: 'error', summary: `Чат сайта: ответы менеджера / присутствие — ${(err as Error).message}`.slice(0, 2000), details: { channel: 'site', sessionId: s.id } });
+      const last = liveErrorAt.get(s.id) ?? 0;
+      if (now.getTime() - last >= 15 * 60_000) {
+        liveErrorAt.set(s.id, now.getTime());
+        await d.journal.add({ accountId: s.accountId, leadId, kind: 'error', summary: `Чат сайта: ответы менеджера / присутствие — ${message}`.slice(0, 2000), details: { channel: 'site', sessionId: s.id } });
+      }
     }
   }
   return out;

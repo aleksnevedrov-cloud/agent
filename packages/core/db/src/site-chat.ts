@@ -380,9 +380,21 @@ export class SiteChatRepo {
     return { failed: r?.amo_sync === 'failed', attempts: Number(r?.amo_attempts ?? 0) };
   }
 
-  /** Заявка удалена или отклонена в amoCRM: запись больше не повторяем, ожидающие сообщения помечаем skipped. */
+  /**
+   * Заявка удалена или отклонена в amoCRM: запись больше не повторяем, ожидающие сообщения помечаем skipped,
+   * диалог закрываем — иначе проход «ответы менеджера / присутствие» ходил бы в несуществующую заявку каждые 30 с.
+   */
   async markLeadGone(id: string, error: string): Promise<void> {
-    await this.db.query(`UPDATE site_chat_sessions SET amo_sync = 'failed', amo_error = $2, task_sync = CASE WHEN task_sync = 'pending' THEN 'none' ELSE task_sync END, summary_sync = CASE WHEN summary_sync = 'pending' THEN 'none' ELSE summary_sync END WHERE id = $1`, [id, error.slice(0, 1000)]);
+    await this.db.query(
+      `UPDATE site_chat_sessions
+          SET amo_sync = 'failed', amo_error = $2,
+              task_sync = CASE WHEN task_sync = 'pending' THEN 'none' ELSE task_sync END,
+              summary_sync = CASE WHEN summary_sync = 'pending' THEN 'none' ELSE summary_sync END,
+              state = CASE WHEN state IN ('active', 'handed_off') THEN 'closed' ELSE state END,
+              closed_at = COALESCE(closed_at, now())
+        WHERE id = $1`,
+      [id, error.slice(0, 1000)],
+    );
     await this.db.query(`UPDATE site_chat_messages SET amo_sync = 'skipped' WHERE session_id = $1 AND amo_sync = 'pending'`, [id]);
   }
 

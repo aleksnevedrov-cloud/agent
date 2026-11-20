@@ -62,6 +62,7 @@ function fakeApi(opts: { contactsByPhone?: { id: number }[]; contactsByEmail?: {
     },
     async getLeadNotes(leadId: number) {
       calls.push({ method: 'getLeadNotes', args: [leadId] });
+      if (opts.leadGone) throw new Error(`amo API GET /api/v4/leads/${leadId}/notes: HTTP 400`);
       return (opts.notes ?? []) as never;
     },
   } satisfies SiteSyncApi;
@@ -198,12 +199,30 @@ describe('заявка удалена или отклонена в amoCRM', () =
     const r = await runSiteChatSync(deps(gone.api));
     expect(r).toMatchObject({ failed: 1, errors: 0 });
     const after = await repo.get(sess.id);
-    expect(after).toMatchObject({ amoSync: 'failed' });
+    expect(after).toMatchObject({ amoSync: 'failed', state: 'closed' });
     expect(after!.amoError).toContain('удалена или отклонена');
     expect((await repo.messages(sess.id)).every((m) => m.amoSync !== 'pending')).toBe(true);
     expect((await journal.list(ACC, { limit: 100 })).filter((j) => j.kind === 'error').length).toBe(before);
     // Следующий проход её не берёт.
     expect((await runSiteChatSync(deps(gone.api))).sessions).toBe(0);
+  });
+});
+
+describe('заявка отклонена у диалога «передан менеджеру» (без очереди записи)', () => {
+  it('живой проход: примечания отвечают HTTP 400, заявки нет → диалог закрыт с пометкой, журнал без ошибки, дальше не опрашивается', async () => {
+    const { sess } = await session('79267000010', 'передан, потом отклонят');
+    await runSiteChatSync(deps(fakeApi().api));
+    await repo.setState(sess.id, 'handed_off', 'client_request');
+    const before = (await journal.list(ACC, { limit: 100 })).filter((j) => j.kind === 'error').length;
+    const gone = fakeApi({ leadGone: true });
+    const r = await runSiteChatLive(deps(gone.api));
+    // Подделка отвечает 400 всем живым диалогам этого прогона — важно, что ошибок нет, а наш диалог закрыт.
+    expect(r.gone).toBeGreaterThanOrEqual(1);
+    expect(r.errors).toBe(0);
+    expect(await repo.get(sess.id)).toMatchObject({ state: 'closed', amoSync: 'failed' });
+    expect((await journal.list(ACC, { limit: 100 })).filter((j) => j.kind === 'error').length).toBe(before);
+    expect(gone.calls.filter((c) => c.method === 'getLeadNotes').length).toBeGreaterThan(0);
+    expect((await repo.liveWithLead()).some((x) => x.id === sess.id)).toBe(false);
   });
 });
 

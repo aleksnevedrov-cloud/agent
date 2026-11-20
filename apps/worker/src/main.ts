@@ -286,7 +286,7 @@ const callsWorker = new Worker(
       if (r.leads || r.notes || r.summaries || r.tasks || r.errors) log.info({ ...r }, 'site-chat-sync: запись чата сайта в amoCRM');
       // Ответы менеджера «Клиенту: …» в окно и отметки «закрыл сайт / снова на сайте».
       const live = await runSiteChatLive(siteSync);
-      if (live.managerMessages || live.presenceNotes || live.errors) log.info({ ...live }, 'site-chat-live: ответы менеджера и присутствие клиента');
+      if (live.managerMessages || live.presenceNotes || live.gone || live.errors) log.info({ ...live }, 'site-chat-live: ответы менеджера и присутствие клиента');
       return { ...r, live };
     }
     if (job.name === SITE_CHAT_IDLE_JOB) {
