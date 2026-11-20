@@ -30,7 +30,8 @@ function fakeApi(opts: { contactsByPhone?: { id: number }[]; contactsByEmail?: {
       return (opts.contactsByPhone ?? []) as never;
     },
     async findContactsByEmail() {
-      return (opts.contactsByEmail ?? []) as never;
+      // Как amo: контакт с полями; у «Сергея» (id 1) есть телефон, у id 2 — нет.
+      return (opts.contactsByEmail ?? []).map((c) => ({ ...c, name: 'К', custom_fields_values: c.id === 1 ? [{ field_code: 'PHONE', values: [{ value: '+79990000099' }] }] : null })) as never;
     },
     async createUnsortedForm(a: unknown) {
       calls.push({ method: 'createUnsortedForm', args: [a] });
@@ -178,6 +179,22 @@ describe('runSiteChatSync', () => {
     expect(ok.calls.filter((c) => c.method === 'createUnsortedForm')).toHaveLength(0);
     got = (await repo.get(sess.id))!;
     expect(got.amoLeadId).toBe(500);
+  });
+});
+
+describe('поиск контакта по почте', () => {
+  it('контакт с телефоном по почте не берётся (чужой человек с общим ящиком); без телефона — берётся', async () => {
+    await session('79267000001', 'почта общая');
+    const a = fakeApi({ contactsByEmail: [{ id: 1 }] });
+    await runSiteChatSync(deps(a.api));
+    const form1 = a.calls.find((c) => c.method === 'createUnsortedForm')!.args[0] as { contact: Record<string, unknown> };
+    expect(form1.contact).toMatchObject({ phone: '79267000001' });
+    expect(form1.contact.id).toBeUndefined();
+    await session('79267000002', 'почта личная');
+    const b = fakeApi({ contactsByEmail: [{ id: 2 }] });
+    await runSiteChatSync(deps(b.api));
+    const form2 = b.calls.find((c) => c.method === 'createUnsortedForm')!.args[0] as { contact: Record<string, unknown> };
+    expect(form2.contact).toEqual({ id: 2 });
   });
 });
 

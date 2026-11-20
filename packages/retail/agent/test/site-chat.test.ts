@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { seeded, type Seeded } from '../../../core/tools/test/fixtures.ts';
 import { Orchestrator } from '../src/orchestrator.ts';
 import type { AccountAi } from '../src/provider.ts';
-import { closeIdleSession, handoffText, runSiteTurn, siteHistory, withinHours, type SiteTurnDeps } from '../src/site-chat.ts';
+import { closeIdleSession, handoffText, mentionedProducts, runSiteTurn, siteHistory, withinHours, type SiteTurnDeps } from '../src/site-chat.ts';
 import { ScriptedLlm, text, toolUse } from './scripted-llm.ts';
 
 const ACC = 1;
@@ -50,6 +50,21 @@ describe('вспомогательные', () => {
     expect(withinHours('10:00', '20:00', at('2026-11-19T18:30:00Z'))).toBe(false); // 21:30 МСК
     expect(withinHours('22:00', '06:00', at('2026-11-19T22:00:00Z'))).toBe(true); // 01:00 МСК, через полночь
     expect(handoffText('Передала менеджеру, он перезвонит на {phone}.', '79261234567')).toBe('Передала менеджеру, он перезвонит на +7 926 123-45-67.');
+  });
+});
+
+describe('карточки товаров', () => {
+  it('только названные в ответе: защёлки из выдачи поиска без упоминания не показываются; полное имя и модель с номером', () => {
+    const src = [
+      { type: 'product' as const, id: 'z1', title: 'Защёлка магнитная' },
+      { type: 'product' as const, id: 'z2', title: 'Защёлка сантехническая' },
+      { type: 'product' as const, id: '1001', title: 'Турин 1 эмаль белая' },
+      { type: 'product' as const, id: '1002', title: 'Турин 2 эмаль белая' },
+      { type: 'product' as const, id: '77', title: 'Скин-5 ПГ (Белая эмаль)' },
+    ];
+    expect(mentionedProducts('Подойдёт Турин 1 эмаль белая — 14 900 ₽. Ещё есть Скин-5 ПГ белая эмаль.', src)).toEqual(['1001', '77']);
+    expect(mentionedProducts('Белые двери есть, уточните размер.', src)).toEqual([]);
+    expect(mentionedProducts('Турин 2 — 15 900 ₽', src)).toEqual(['1002']);
   });
 });
 

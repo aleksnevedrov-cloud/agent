@@ -1,5 +1,5 @@
 import type { AmoApiClient } from '@core/amo';
-import { resolveTaskAssignee } from '@core/amo';
+import { resolveTaskAssignee, fieldValues } from '@core/amo';
 import { SITE_SYNC_MAX_ATTEMPTS, type JournalRepo, type SettingsRepo, type SiteChatMessage, type SiteChatRepo, type SiteChatSession, type WidgetSettings } from '@core/db';
 import { closeIdleSession, type SiteTurnDeps } from './site-chat.ts';
 
@@ -94,7 +94,10 @@ export async function syncSession(d: SiteSyncDeps, api: SiteSyncApi, settings: W
   // 1. Заявка в «Неразобранном».
   if (s.amoSync === 'pending' && !s.amoLeadId) {
     const byPhone = await api.findContactsByPhone(s.phone);
-    const existing = byPhone[0] ?? (s.email ? (await api.findContactsByEmail(s.email))[0] : null) ?? null;
+    // По почте — только контакт без телефона: общий ящик семьи или фирмы не должен приклеивать заявку к чужому человеку
+    // (приёмка 20.11.2026: тестовая заявка легла на «Сергея», которому раньше дописали test@example.com).
+    const byEmail = byPhone.length || !s.email ? [] : (await api.findContactsByEmail(s.email)).filter((c) => fieldValues(c.custom_fields_values, 'PHONE').length === 0);
+    const existing = byPhone[0] ?? byEmail[0] ?? null;
     const r = await api.createUnsortedForm({
       sourceName: sc.sourceName,
       sourceUid: SITE_SOURCE_UID,

@@ -81,8 +81,40 @@ class SiteCrm implements CrmPort {
   }
 }
 
-async function productCards(catalog: CatalogRepo, accountId: number, sources: TurnResult['sources']): Promise<SiteChatProduct[]> {
-  const ids = [...new Set(sources.filter((s) => s.type === 'product').map((s) => s.id))].slice(0, 3);
+const norm = (t: string) => t.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/**
+ * Какие товары из результатов инструментов показать карточками: только те, что агент назвал в ответе.
+ * catalog_search отдаёт до 10 позиций, и первыми могут идти защёлки по 288 ₽ — карточки без привязки к тексту вводили в заблуждение (замечание приёмки 20.11.2026).
+ */
+export function mentionedProducts(text: string, sources: TurnResult['sources'], limit = 3): string[] {
+  const hay = ` ${norm(text)} `;
+  const seen = new Set<string>();
+  const scored: { id: string; score: number; order: number }[] = [];
+  sources
+    .filter((s) => s.type === 'product')
+    .forEach((s, order) => {
+      if (seen.has(s.id)) return;
+      seen.add(s.id);
+      const title = norm(s.title ?? '');
+      if (!title) return;
+      if (hay.includes(` ${title} `)) return void scored.push({ id: s.id, score: 2, order });
+      const words = title.split(' ');
+      const hits = words.filter((w) => hay.includes(` ${w} `));
+      // Названия вида «Турин 1» и «Турин 2» различаются только номером: все числа названия обязаны быть в тексте,
+      // плюс не меньше половины слов и минимум два — одно общее слово («белая») карточку не даёт.
+      const numbers = words.filter((w) => /\d/.test(w));
+      if (numbers.some((n) => !hits.includes(n))) return;
+      if (hits.length >= Math.min(2, words.length) && hits.length / words.length >= 0.5) scored.push({ id: s.id, score: hits.length / words.length, order });
+    });
+  return scored
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .slice(0, limit)
+    .map((x) => x.id);
+}
+
+async function productCards(catalog: CatalogRepo, accountId: number, sources: TurnResult['sources'], text: string): Promise<SiteChatProduct[]> {
+  const ids = mentionedProducts(text, sources);
   const out: SiteChatProduct[] = [];
   for (const id of ids) {
     const p = await catalog.get(accountId, id).catch(() => null);
@@ -198,7 +230,7 @@ export async function runSiteTurn(d: SiteTurnDeps, sessionId: string, incoming: 
     return finishHandoff('no_answer', transcriptSummary(all), result);
   }
 
-  const products = await productCards(d.catalog, session.accountId, result.sources);
+  const products = await productCards(d.catalog, session.accountId, result.sources, result.text);
   const message = await d.siteChat.addMessage(session.id, 'agent', result.text, { products, costRub, sync: 'pending' });
   await d.journal.add({
     accountId: session.accountId,
