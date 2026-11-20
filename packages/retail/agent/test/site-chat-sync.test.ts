@@ -21,7 +21,7 @@ beforeAll(async () => {
 afterAll(async () => s.drop());
 
 /** Подделка amo: запоминает вызовы, умеет падать. */
-function fakeApi(opts: { contactsByPhone?: { id: number }[]; contactsByEmail?: { id: number }[]; failUnsorted?: boolean; failNotes?: boolean; notes?: { id: number; note_type: string; created_at: number; created_by: number; params?: { text?: string } }[] } = {}) {
+function fakeApi(opts: { contactsByPhone?: { id: number }[]; contactsByEmail?: { id: number }[]; failUnsorted?: boolean; failNotes?: boolean; leadGone?: boolean; notes?: { id: number; note_type: string; created_at: number; created_by: number; params?: { text?: string } }[] } = {}) {
   const calls: { method: string; args: unknown[] }[] = [];
   let noteSeq = 100;
   const api = {
@@ -55,7 +55,7 @@ function fakeApi(opts: { contactsByPhone?: { id: number }[]; contactsByEmail?: {
       return 42;
     },
     async getLead() {
-      return { responsible_user_id: 0 } as never;
+      return (opts.leadGone ? null : { responsible_user_id: 0 }) as never;
     },
     async listUsers() {
       return [{ id: 9, name: 'Админ', email: null, isActive: true, isAdmin: true }, { id: 5, name: 'Иван Петров', email: null, isActive: true, isAdmin: false }] as never;
@@ -179,6 +179,31 @@ describe('runSiteChatSync', () => {
     expect(ok.calls.filter((c) => c.method === 'createUnsortedForm')).toHaveLength(0);
     got = (await repo.get(sess.id))!;
     expect(got.amoLeadId).toBe(500);
+  });
+});
+
+describe('заявка удалена или отклонена в amoCRM', () => {
+  it('примечания отвечают HTTP 400, заявки нет → failed без повторов и без ошибки в журнале, ожидающие сообщения skipped', async () => {
+    const { sess } = await session('79267000009', 'заявку отклонят');
+    await runSiteChatSync(deps(fakeApi().api)); // заявка 500 создана, первое примечание записано
+    await repo.addMessage(sess.id, 'client', 'ещё сообщение после отклонения');
+    // Хвост без ответа уходит в amo только после паузы в 2 минуты — состарим сообщение.
+    await s.db.query(`UPDATE site_chat_messages SET created_at = created_at - interval '5 minutes' WHERE session_id = $1`, [sess.id]);
+    const gone = fakeApi({ failNotes: true, leadGone: true });
+    // failNotes бросает «notes 502» — подделываем ответ amo для 400.
+    gone.api.addLeadNote = async () => {
+      throw new Error('amo API POST /api/v4/leads/500/notes: HTTP 400');
+    };
+    const before = (await journal.list(ACC, { limit: 100 })).filter((j) => j.kind === 'error').length;
+    const r = await runSiteChatSync(deps(gone.api));
+    expect(r).toMatchObject({ failed: 1, errors: 0 });
+    const after = await repo.get(sess.id);
+    expect(after).toMatchObject({ amoSync: 'failed' });
+    expect(after!.amoError).toContain('удалена или отклонена');
+    expect((await repo.messages(sess.id)).every((m) => m.amoSync !== 'pending')).toBe(true);
+    expect((await journal.list(ACC, { limit: 100 })).filter((j) => j.kind === 'error').length).toBe(before);
+    // Следующий проход её не берёт.
+    expect((await runSiteChatSync(deps(gone.api))).sessions).toBe(0);
   });
 });
 

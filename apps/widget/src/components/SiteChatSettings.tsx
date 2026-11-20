@@ -1,14 +1,12 @@
 import { useCallback } from 'react';
-import type { SiteChatOverview, WidgetApi, WidgetSettings } from '../api.ts';
+import type { WidgetApi, WidgetSettings } from '../api.ts';
 import { Field, linesToList, NumberInput } from './fields.tsx';
-import { dateTime, rub } from './StatusBadge.tsx';
+import { rub } from './StatusBadge.tsx';
 import { s } from './styles.ts';
 import { useLoad } from './useLoad.ts';
 
 type SC = WidgetSettings['siteChat'];
 
-const STATE_LABEL: Record<string, string> = { active: 'идёт', handed_off: 'передан менеджеру', closed: 'закрыт', spam: 'спам' };
-const SYNC_LABEL: Record<string, string> = { pending: 'ждёт записи', sent: 'в amoCRM', failed: 'не записан' };
 
 /**
  * RFD-SITE-CHAT-AGENT: вкладка «Чат сайта» — чат на rf-dveri.ru вместо Jivo на базе агента розницы.
@@ -131,42 +129,8 @@ export function SiteChatSettings({ api, value, onChange }: { api: WidgetApi; val
         <div style={s.muted}>Пример примечания: «Клиенту: Да, высоту 2100 делаем, доплата 15 %».</div>
       </Field>
 
-      <Field label="Последние диалоги с сайта">
-        {state.status === 'loading' && <div style={s.muted}>Загрузка…</div>}
-        {state.status === 'error' && <div style={s.error}>{state.message}</div>}
-        {state.status === 'ready' && !state.data.sessions.length && <div style={s.muted}>Диалогов ещё не было.</div>}
-        {state.status === 'ready' && state.data.sessions.length > 0 && (
-          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={s.muted}>
-                <th style={{ textAlign: 'left' }}>Когда</th>
-                <th style={{ textAlign: 'left' }}>Клиент</th>
-                <th style={{ textAlign: 'left' }}>Сообщений</th>
-                <th style={{ textAlign: 'left' }}>Диалог</th>
-                <th style={{ textAlign: 'left' }}>На сайте</th>
-                <th style={{ textAlign: 'left' }}>Заявка</th>
-              </tr>
-            </thead>
-            <tbody>
-              {state.data.sessions.map((x: SiteChatOverview['sessions'][number]) => (
-                <tr key={x.id}>
-                  <td>{dateTime(x.createdAt)}</td>
-                  <td>
-                    {x.name}, +{x.phone}
-                  </td>
-                  <td>{x.messages}</td>
-                  <td>{STATE_LABEL[x.state] ?? x.state}</td>
-                  <td>{x.online ? 'да' : 'нет'}</td>
-                  <td style={x.amoSync === 'failed' ? s.error : undefined}>
-                    {SYNC_LABEL[x.amoSync] ?? x.amoSync}
-                    {x.amoLeadId ? ` #${x.amoLeadId}` : ''}
-                    {x.amoError ? ` — ${x.amoError}` : ''}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <Field label="Последние диалоги с сайта" hint="Полный журнал переписки — во вкладке «Диалоги сайта».">
+        {state.status === 'ready' && <div style={s.muted}>Диалогов за последнее время: {state.data.sessions.length}, не записаны в amoCRM: {state.data.sessions.filter((x) => x.amoSync === 'failed').length}.</div>}
       </Field>
     </>
   );

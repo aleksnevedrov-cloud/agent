@@ -8,6 +8,7 @@ import { EmailSettings } from './EmailSettings.tsx';
 import { TaskScopeSettings } from './TaskScope.tsx';
 import { ReactivationSettings } from './Reactivation.tsx';
 import { SiteChatSettings } from './SiteChatSettings.tsx';
+import { SiteChatDialogs } from './SiteChatDialogs.tsx';
 import { WazzupSettings } from './WazzupSettings.tsx';
 import { Journal } from './Journal.tsx';
 import { PricingEditor } from './PricingEditor.tsx';
@@ -38,6 +39,7 @@ const TABS = [
   ['handoff', 'Передача менеджеру'],
   ['reactivation', 'Догон после отказа'],
   ['siteChat', 'Чат сайта'],
+  ['siteDialogs', 'Диалоги сайта'],
   ['email', 'Почта'],
   ['wazzup', 'Wazzup'],
   ['catalog', 'Каталог'],
@@ -505,6 +507,7 @@ function SettingsForm(props: { api: WidgetApi; status: Status; initial: WidgetSe
 
       {tab === 'sandbox' && <Sandbox api={api} draft={dirty ? draft : undefined} compare={compare} providers={providersWithKey ?? undefined} />}
       {tab === 'journal' && <Journal api={api} />}
+      {tab === 'siteDialogs' && <SiteChatDialogs api={api} />}
       {tab === 'analytics' && <Analytics api={api} />}
       {tab === 'versions' && <Versions api={api} isAdmin={props.status.isAdmin} onRestored={() => void onRestored()} />}
 

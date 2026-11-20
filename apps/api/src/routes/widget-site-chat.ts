@@ -34,6 +34,32 @@ export function widgetSiteChatRoutes(api: FastifyInstance, deps: Deps, principal
     };
   });
 
+  /** Вкладка «Диалоги сайта»: до 100 последних диалогов (без переписки — она по /sessions/:id). */
+  api.get('/site-chat/sessions', async (req) => {
+    const p = principal(req);
+    const sessions = await deps.siteChat.list(p.accountId, 100);
+    return {
+      sessions: sessions.map((s) => ({
+        id: s.id,
+        createdAt: s.createdAt.toISOString(),
+        lastSeenAt: s.lastSeenAt.toISOString(),
+        name: s.name,
+        phone: s.phone,
+        email: s.email,
+        state: s.state,
+        handoffReason: s.handoffReason,
+        messages: s.messages,
+        amoSync: s.amoSync,
+        amoLeadId: s.amoLeadId,
+        amoError: s.amoError,
+        pageUrl: s.pageUrl,
+        pageTitle: s.pageTitle,
+        utm: s.utm,
+        online: !!s.seenAt && Date.now() - s.seenAt.getTime() < 90_000,
+      })),
+    };
+  });
+
   api.get('/site-chat/sessions/:id', async (req, reply) => {
     const p = principal(req);
     const id = (req.params as { id: string }).id;
@@ -41,6 +67,6 @@ export function widgetSiteChatRoutes(api: FastifyInstance, deps: Deps, principal
     const s = await deps.siteChat.get(id);
     if (!s || s.accountId !== p.accountId) return reply.code(404).send({ error: 'not_found' });
     const messages = await deps.siteChat.messages(id);
-    return { session: { ...s, createdAt: s.createdAt.toISOString(), lastSeenAt: s.lastSeenAt.toISOString() }, messages: messages.map((m) => ({ id: m.id, author: m.author, text: m.text, at: m.createdAt.toISOString(), costRub: m.costRub, amoSync: m.amoSync })) };
+    return { session: { ...s, createdAt: s.createdAt.toISOString(), lastSeenAt: s.lastSeenAt.toISOString() }, messages: messages.map((m) => ({ id: m.id, author: m.author, authorName: m.authorName, text: m.text, at: m.createdAt.toISOString(), costRub: m.costRub, amoSync: m.amoSync, products: m.products })) };
   });
 }

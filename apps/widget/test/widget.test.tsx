@@ -270,6 +270,17 @@ describe('вкладка «Чат сайта» (RFD-SITE-CHAT-AGENT)', () => {
         dailyBudgetRub: 500,
         sessions: [{ id: 'a'.repeat(32), createdAt: '2026-11-19T10:00:00Z', lastSeenAt: '2026-11-19T10:05:00Z', name: 'Павел', phone: '79261234567', state: 'handed_off', messages: 4, amoSync: 'sent', amoLeadId: 555, amoError: null, pageUrl: null, online: true }],
       },
+      'GET /widget/v1/site-chat/sessions': {
+        sessions: [{ id: 'a'.repeat(32), createdAt: '2026-11-19T10:00:00Z', lastSeenAt: '2026-11-19T10:05:00Z', name: 'Павел', phone: '79261234567', email: 'p@example.com', state: 'handed_off', handoffReason: 'manager', messages: 4, amoSync: 'sent', amoLeadId: 555, amoError: null, pageUrl: 'https://www.rf-dveri.ru/catalog/', pageTitle: 'Каталог', utm: { utm_source: 'yandex' }, online: true }],
+      },
+      [`GET /widget/v1/site-chat/sessions/${'a'.repeat(32)}`]: {
+        session: { id: 'a'.repeat(32), name: 'Павел', phone: '79261234567', email: 'p@example.com', state: 'handed_off', pageUrl: 'https://www.rf-dveri.ru/catalog/', pageTitle: 'Каталог', utm: { utm_source: 'yandex' }, summaryText: 'Что ищет: белая дверь' },
+        messages: [
+          { id: 1, author: 'client', authorName: null, text: 'Нужна белая дверь', at: '2026-11-19T10:00:00Z', costRub: 0, amoSync: 'sent', products: [] },
+          { id: 2, author: 'agent', authorName: null, text: 'Подойдёт Турин 1', at: '2026-11-19T10:00:10Z', costRub: 1.2, amoSync: 'sent', products: [{ id: '1001', name: 'Турин 1', price: 14900 }] },
+          { id: 3, author: 'manager', authorName: 'Иван Петров', text: 'Да, делаем 2100', at: '2026-11-19T10:04:00Z', costRub: 0, amoSync: 'skipped', products: [] },
+        ],
+      },
     });
     const cb = createCallbacks(self, 'https://ai.test.ru');
     await act(async () => void cb.advancedSettings!());
@@ -279,10 +290,24 @@ describe('вкладка «Чат сайта» (RFD-SITE-CHAT-AGENT)', () => {
     const area = document.getElementById('work-area-ai_door')!;
     expect(area.textContent).toContain('Чат на сайте включён');
     expect(area.querySelector<HTMLInputElement>('input[readonly]')?.value).toContain('/site-chat/widget.js');
-    expect(area.textContent).toContain('Павел, +79261234567');
-    expect(area.textContent).toContain('передан менеджеру');
-    expect(area.textContent).toContain('в amoCRM #555');
+    expect(area.textContent).toContain('Диалогов за последнее время: 1');
     expect(area.textContent).toContain('12,5 ₽');
+    // Журнал переписки — отдельная вкладка «Диалоги сайта» (предложение заказчика 20.11.2026).
+    await click('Диалоги сайта');
+    await flush();
+    expect(area.textContent).toContain('Павел, +79261234567');
+    expect(area.textContent).toContain('передан менеджеру · ответил менеджер');
+    expect(area.textContent).toContain('в amoCRM #555');
+    expect(area.textContent).toContain('на сайте');
+    await act(async () => [...area.querySelectorAll<HTMLElement>('[role="button"]')].find((b) => b.textContent?.includes('Павел'))!.click());
+    await flush();
+    expect(area.textContent).toContain('Иван Петров:');
+    expect(area.textContent).toContain('Да, делаем 2100');
+    expect(area.textContent).toMatch(/карточки: Турин 1 14.900.₽/);
+    expect(area.textContent).toContain('Сводка Аммы:');
+    expect(area.textContent).toContain('utm_source=yandex');
+    await click('Чат сайта');
+    await flush();
     const toggle = [...area.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')][0]!;
     expect(toggle.checked).toBe(false);
     await act(async () => toggle.click());

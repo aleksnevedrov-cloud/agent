@@ -198,8 +198,18 @@ export async function runSiteChatSync(d: SiteSyncDeps): Promise<SiteSyncResult> 
       }
       await syncSession(d, a.api, a.settings, s, out);
     } catch (err) {
-      out.errors += 1;
       const message = (err as Error).message;
+      // Заявку отклонили или удалили в amoCRM (приёмка 20.11.2026: тестовые заявки отклоняли, примечания отвечали HTTP 400) —
+      // повторять нечего, в журнал ошибок не пишем.
+      if (s.amoLeadId && /HTTP (400|404)/.test(message)) {
+        const lead = await apis.get(s.accountId)?.api.getLead(s.amoLeadId).catch(() => undefined);
+        if (lead === null) {
+          await d.siteChat.markLeadGone(s.id, `заявка #${s.amoLeadId} удалена или отклонена в amoCRM`);
+          out.failed += 1;
+          continue;
+        }
+      }
+      out.errors += 1;
       const r = await d.siteChat.markSyncFailed(s.id, message, now);
       if (r.failed || r.attempts === SITE_SYNC_MAX_ATTEMPTS) {
         out.failed += 1;

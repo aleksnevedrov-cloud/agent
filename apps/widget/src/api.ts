@@ -335,6 +335,30 @@ export interface SiteChatOverview {
   sessions: { id: string; createdAt: string; lastSeenAt: string; name: string; phone: string; state: string; messages: number; amoSync: string; amoLeadId: number | null; amoError: string | null; pageUrl: string | null; online: boolean }[];
 }
 
+/** Вкладка «Диалоги сайта». */
+export interface SiteChatSessionRow {
+  id: string;
+  createdAt: string;
+  lastSeenAt: string;
+  name: string;
+  phone: string;
+  email: string;
+  state: string;
+  handoffReason: string | null;
+  messages: number;
+  amoSync: string;
+  amoLeadId: number | null;
+  amoError: string | null;
+  pageUrl: string | null;
+  pageTitle: string | null;
+  utm: Record<string, string>;
+  online: boolean;
+}
+export interface SiteChatTranscript {
+  session: SiteChatSessionRow & { summaryText: string | null };
+  messages: { id: number; author: 'client' | 'agent' | 'system' | 'manager'; authorName: string | null; text: string; at: string; costRub: number; amoSync: string; products: { id: string; name: string; price: number | null }[] }[];
+}
+
 export interface Dictionaries {
   pipelines: { id: number; name: string; statuses: { id: number; name: string }[] }[];
   taskTypes: { id: number; name: string }[];
@@ -447,6 +471,8 @@ export class WidgetApi {
 
   analytics = (days: number) => this.call<AnalyticsSummary>('GET', `/widget/v1/analytics?days=${days}`);
   siteChatOverview = () => this.call<SiteChatOverview>('GET', '/widget/v1/site-chat/overview');
+  siteChatSessions = () => this.call<{ sessions: SiteChatSessionRow[] }>('GET', '/widget/v1/site-chat/sessions');
+  siteChatSession = (id: string) => this.call<SiteChatTranscript>('GET', `/widget/v1/site-chat/sessions/${id}`);
   billing = () => this.call<{ months: BillingMonth[] }>('GET', '/widget/v1/billing');
   settingsHistory = () => this.call<{ items: SettingsVersion[] }>('GET', '/widget/v1/settings/history');
   settingsVersion = (id: number) => this.call<SettingsVersion & { settings: WidgetSettings }>('GET', `/widget/v1/settings/history/${id}`);

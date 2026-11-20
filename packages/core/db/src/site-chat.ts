@@ -380,6 +380,12 @@ export class SiteChatRepo {
     return { failed: r?.amo_sync === 'failed', attempts: Number(r?.amo_attempts ?? 0) };
   }
 
+  /** Заявка удалена или отклонена в amoCRM: запись больше не повторяем, ожидающие сообщения помечаем skipped. */
+  async markLeadGone(id: string, error: string): Promise<void> {
+    await this.db.query(`UPDATE site_chat_sessions SET amo_sync = 'failed', amo_error = $2, task_sync = CASE WHEN task_sync = 'pending' THEN 'none' ELSE task_sync END, summary_sync = CASE WHEN summary_sync = 'pending' THEN 'none' ELSE summary_sync END WHERE id = $1`, [id, error.slice(0, 1000)]);
+    await this.db.query(`UPDATE site_chat_messages SET amo_sync = 'skipped' WHERE session_id = $1 AND amo_sync = 'pending'`, [id]);
+  }
+
   async markMessagesSynced(ids: number[], noteId: number | null, sync: SiteChatMessage['amoSync'] = 'sent'): Promise<void> {
     if (!ids.length) return;
     await this.db.query('UPDATE site_chat_messages SET amo_note_id = $2, amo_sync = $3 WHERE id = ANY($1::bigint[])', [ids, noteId, sync]);
