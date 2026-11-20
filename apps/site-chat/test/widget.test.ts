@@ -117,6 +117,7 @@ describe('widget.js (RFD-SITE-CHAT-AGENT)', () => {
   it('повторный визит: сессия из localStorage, история с сервера, форма не показывается; отправка сообщения', async () => {
     localStorage.setItem('rfd_chat_session', 'b'.repeat(32));
     localStorage.setItem('rfd_chat_open', '1');
+    sessionStorage.setItem('rfd_chat_tab', '1'); // та же вкладка — окно раскрывается само
     load();
     await flush();
     await flush();
@@ -169,9 +170,49 @@ describe('widget.js (RFD-SITE-CHAT-AGENT)', () => {
     expect(sessionStorage.getItem('rfd_chat_popup_done')).toBe('1');
   });
 
+  it('память окна: закрытый по простою диалог забывается — снова форма; при новом визите окно не раскрывается само, при переходе в той же вкладке — раскрывается', async () => {
+    localStorage.setItem('rfd_chat_session', 'c'.repeat(32));
+    localStorage.setItem('rfd_chat_open', '1');
+    sessionStorage.setItem('rfd_chat_tab', '1'); // та же вкладка — окно раскрывается само
+    const history = (state: string) =>
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith('/site-chat/v1/config')) return new Response(JSON.stringify(config), { status: 200 });
+        if (url.includes('/site-chat/v1/messages')) return new Response(JSON.stringify({ state, messages: [{ id: 1, author: 'client', text: 'было', products: [], at: new Date().toISOString() }] }), { status: 200 });
+        return new Response('{}', { status: 404 });
+      }) as typeof fetch;
+    globalThis.fetch = history('closed');
+    load();
+    await flush();
+    await flush();
+    expect(localStorage.getItem('rfd_chat_session')).toBeNull();
+    expect(shadow().querySelector('.win')).toBeNull();
+    shadow().querySelector<HTMLButtonElement>('.tab')!.click();
+    expect(shadow().querySelector('form [name=name]')).not.toBeNull();
+
+    // Живой диалог, но новая вкладка (sessionStorage пуст): свёрнут.
+    localStorage.setItem('rfd_chat_session', 'd'.repeat(32));
+    localStorage.setItem('rfd_chat_open', '1');
+    sessionStorage.clear();
+    globalThis.fetch = history('active');
+    load();
+    await flush();
+    await flush();
+    expect(shadow().querySelector('.win')).toBeNull();
+    expect(localStorage.getItem('rfd_chat_session')).toBe('d'.repeat(32));
+    // Та же вкладка (чат открывали в ней): раскрывается с историей.
+    sessionStorage.setItem('rfd_chat_tab', '1');
+    load();
+    await flush();
+    await flush();
+    expect(shadow().querySelector('.win')).not.toBeNull();
+    expect(shadow().querySelector('.msgs')!.textContent).toContain('было');
+  });
+
   it('ответ менеджера: серый пузырь с подписью «Менеджер Имя», счётчик на ярлыке при закрытом окне', async () => {
     localStorage.setItem('rfd_chat_session', 'b'.repeat(32));
     localStorage.setItem('rfd_chat_open', '1');
+    sessionStorage.setItem('rfd_chat_tab', '1'); // та же вкладка — окно раскрывается само
     globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.endsWith('/site-chat/v1/config')) return new Response(JSON.stringify(config), { status: 200 });

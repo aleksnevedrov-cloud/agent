@@ -54,6 +54,8 @@ const KEY_OPEN = 'rfd_chat_open';
 const KEY_SOUND = 'rfd_chat_sound';
 const KEY_POPUP = 'rfd_chat_popup_done';
 const KEY_UTM = 'rfd_chat_utm';
+/** Вкладка, в которой чат открывали (sessionStorage): окно само раскрывается только при переходах внутри неё, не при новом визите. */
+const KEY_TAB = 'rfd_chat_tab';
 const COLORS = { green: '#3E8914', greenDark: '#357A10', text: '#1B1F23', grey: '#6A737D', grey2: '#959DA5', field: '#F0F3F4', error: '#F94636', orange: '#EE7A22' };
 
 const script = document.currentScript as HTMLScriptElement | null;
@@ -328,7 +330,8 @@ class ChatWidget {
     if (this.session) {
       // Возвращение: история подгружается с сервера, окно — в прежнем состоянии.
       this.loadHistory().then(() => {
-        if (store.get(KEY_OPEN) === '1') this.open();
+        // Раскрываем сами только при переходе по страницам в той же вкладке; новый визит — свёрнутый ярлык со счётчиком.
+        if (store.get(KEY_OPEN) === '1' && store.get(KEY_TAB, true) === '1') this.open();
         else this.connect();
       });
     } else {
@@ -381,6 +384,7 @@ class ChatWidget {
     this.unread = 0;
     this.badge.hidden = true;
     store.set(KEY_OPEN, '1');
+    store.set(KEY_TAB, '1', true);
     const wrap = el('div', 'wrap');
     // На телефоне сверху остаётся просвет с затемнённой страницей (правка заказчика 19.11.2026); нажатие по нему закрывает чат.
     wrap.addEventListener('click', (e) => {
@@ -878,6 +882,14 @@ class ChatWidget {
       }
       if (!r.ok) return;
       const j = (await r.json()) as { state: string; messages: Msg[] };
+      if (j.state === 'closed') {
+        // Диалог закрыт по простою (сводка и задача уже в amoCRM): при новом визите начинаем с чистого листа.
+        this.session = null;
+        store.set(KEY_SESSION, null);
+        store.set(KEY_OPEN, '0');
+        this.schedulePopup();
+        return;
+      }
       this.applyState(j.state);
       this.messages = j.messages;
       this.lastId = Math.max(0, ...j.messages.map((m) => m.id));
