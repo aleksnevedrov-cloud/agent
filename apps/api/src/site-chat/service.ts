@@ -38,13 +38,15 @@ export const sessionInput = z
     referrer: z.string().max(2000).optional(),
     utm: z.record(z.string().max(100), z.string().max(300)).optional(),
     ym_uid: z.string().max(64).optional(),
+    /** yclid Яндекс Директа из cookie сайта rfd_yclid (задание от 20.11.2026). */
+    yclid: z.string().max(64).optional(),
     ga_cid: z.string().max(64).optional(),
   })
   .strict();
 export type SessionInput = z.infer<typeof sessionInput>;
 
 /** Заказ звонка из шторки «Связаться с нами» (телефон): только телефон и согласие, без агента. */
-export const callbackInput = sessionInput.pick({ phone: true, consent: true, website: true, opened_at: true, page_url: true, page_title: true, referrer: true, utm: true, ym_uid: true, ga_cid: true }).strict();
+export const callbackInput = sessionInput.pick({ phone: true, consent: true, website: true, opened_at: true, page_url: true, page_title: true, referrer: true, utm: true, ym_uid: true, yclid: true, ga_cid: true }).strict();
 export const CALLBACK_TEXT = 'Заказать звонок';
 export const CALLBACK_NAME = 'Заказ звонка с сайта';
 
@@ -159,6 +161,7 @@ export class SiteChatService {
       referrer: i.referrer ?? null,
       utm: pickUtm(i.utm),
       ymUid: i.ym_uid ?? null,
+      yclid: i.yclid ?? null,
       gaCid: i.ga_cid ?? null,
       ip: meta.ip,
       userAgent: meta.userAgent?.slice(0, 500) ?? null,
@@ -207,6 +210,7 @@ export class SiteChatService {
       referrer: i.referrer ?? null,
       utm: pickUtm(i.utm),
       ymUid: i.ym_uid ?? null,
+      yclid: i.yclid ?? null,
       gaCid: i.ga_cid ?? null,
       ip: meta.ip,
       userAgent: meta.userAgent?.slice(0, 500) ?? null,

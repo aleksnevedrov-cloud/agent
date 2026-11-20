@@ -58,6 +58,60 @@ const KEY_UTM = 'rfd_chat_utm';
 const KEY_TAB = 'rfd_chat_tab';
 const COLORS = { green: '#3E8914', greenDark: '#357A10', text: '#1B1F23', grey: '#6A737D', grey2: '#959DA5', field: '#F0F3F4', error: '#F94636', orange: '#EE7A22' };
 
+/**
+ * Команда «открыться» для кнопок сайта (задание от 20.11.2026): window.RfMessenger с open / close / toggle
+ * и признаком ready. Вызов до готовности окна не теряется — выполняется, как только окно смонтировано.
+ * Если в шаблоне стоит короткая вставка-заглушка с очередью _q, её очередь подхватывается.
+ */
+export interface RfMessengerApi {
+  ready: boolean;
+  open(): void;
+  close(): void;
+  toggle(): void;
+  /** Очередь вызовов до готовности (имена методов). */
+  _q: ('open' | 'close' | 'toggle')[];
+}
+/** Атрибут кнопки на странице: любой элемент с ним открывает чат. */
+export const OPEN_ACTION = 'open-rf-messenger';
+/** Цель Метрики «открыл чат по кнопке / команде» — один раз на сессию вкладки (замена целям Jivo). */
+export const GOAL_CHAT_OPEN = 'chat_open';
+const KEY_GOAL_OPEN = 'rfd_chat_goal_open';
+
+let widget: ChatWidget | null = null;
+const rfm: RfMessengerApi = (() => {
+  const prev = (window as unknown as { RfMessenger?: Partial<RfMessengerApi> }).RfMessenger;
+  const api: RfMessengerApi = {
+    ready: false,
+    _q: Array.isArray(prev?._q) ? prev._q.filter((x): x is 'open' | 'close' | 'toggle' => x === 'open' || x === 'close' || x === 'toggle') : [],
+    open: () => run('open'),
+    close: () => run('close'),
+    toggle: () => run('toggle'),
+  };
+  function run(cmd: 'open' | 'close' | 'toggle'): void {
+    if (!widget) {
+      // До готовности помним только последнюю команду: «открыть, закрыть, открыть» = «открыть».
+      api._q = [cmd];
+      return;
+    }
+    if (cmd === 'open') widget.openByCommand();
+    else if (cmd === 'close') widget.close();
+    else widget.toggle();
+  }
+  (window as unknown as { RfMessenger: RfMessengerApi }).RfMessenger = api;
+  return api;
+})();
+
+// Делегированный обработчик: кнопка с data-action="open-rf-messenger" в любом шаблоне, без правки скрипта окна.
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', (e) => {
+    const t = e.target as Element | null;
+    const btn = t && typeof t.closest === 'function' ? t.closest(`[data-action="${OPEN_ACTION}"]`) : null;
+    if (!btn) return;
+    e.preventDefault();
+    rfm.open();
+  });
+}
+
 const script = document.currentScript as HTMLScriptElement | null;
 const apiBase = (() => {
   try {
@@ -75,7 +129,17 @@ function main(): void {
   fetch(`${apiBase}/site-chat/v1/config`, { credentials: 'omit' })
     .then((r) => (r.ok ? (r.json() as Promise<Config>) : null))
     .then((cfg) => {
-      if (cfg?.enabled) new ChatWidget(cfg).mount();
+      if (!cfg?.enabled) return;
+      widget = new ChatWidget(cfg);
+      widget.mount();
+      rfm.ready = true;
+      // Команды, пришедшие до готовности (кнопка нажата раньше, чем загрузился скрипт).
+      const queued = rfm._q.splice(0);
+      for (const cmd of queued) {
+        if (cmd === 'open') widget.openByCommand();
+        else if (cmd === 'close') widget.close();
+        else widget.toggle();
+      }
     })
     .catch(() => undefined);
 }
@@ -121,6 +185,21 @@ const cookie = (name: string): string | null => {
     return null; // cookie недоступны (страница без домена или запрет браузера) — отправляем форму без ClientID
   }
 };
+
+/**
+ * Идентификаторы визита для заявки: ClientID Метрики из cookie сайта rfd_ym_uid (ТЗ про ClientId, п. 2.3),
+ * иначе из _ym_uid самой Метрики; yclid Директа из rfd_yclid; GA — из _ga. Нет cookie — поле не передаётся.
+ */
+export function visitIds(): { ym_uid?: string; yclid?: string; ga_cid?: string } {
+  const out: { ym_uid?: string; yclid?: string; ga_cid?: string } = {};
+  const ym = cookie('rfd_ym_uid') || cookie('_ym_uid');
+  const yclid = cookie('rfd_yclid');
+  const ga = cookie('_ga');
+  if (ym) out.ym_uid = ym.slice(0, 64);
+  if (yclid) out.yclid = yclid.slice(0, 64);
+  if (ga) out.ga_cid = ga.slice(0, 64);
+  return out;
+}
 
 /**
  * Цели Яндекс Метрики — конверсии для Директа (как делал Jivo). Идентификаторы целей создаёт заказчик в Метрике
@@ -294,6 +373,8 @@ class ChatWidget {
   private audio: AudioContext | null = null;
   /** Цель «открыл чат» — один раз за загрузку страницы. */
   private openGoalSent = false;
+  /** Цель chat_open (кнопка / команда) — один раз на сессию вкладки. */
+  private chatOpenGoalSent = false;
 
   constructor(private readonly cfg: Config) {}
 
@@ -374,11 +455,33 @@ class ChatWidget {
     else this.openChat();
   }
 
+  /** Команда со страницы (кнопка data-action или RfMessenger.open()): сразу окно чата, без шторки. */
+  openByCommand(): void {
+    store.set(KEY_POPUP, '1', true);
+    if (this.sheet) {
+      this.sheet.remove();
+      this.sheet = null;
+    }
+    this.openChat();
+  }
+
+  toggle(): void {
+    if (this.win || this.sheet) this.close();
+    else this.openByCommand();
+  }
+
   private openChat(): void {
     if (this.win) return;
     if (!this.openGoalSent) {
       this.openGoalSent = true;
       this.goal(GOALS.open);
+    }
+    // Цель «chat_open» — один раз на сессию вкладки (задание от 20.11.2026, замена целям Jivo).
+    // Без sessionStorage (приватный режим) — хотя бы один раз за загрузку страницы.
+    if (store.get(KEY_GOAL_OPEN, true) !== '1' && !this.chatOpenGoalSent) {
+      this.chatOpenGoalSent = true;
+      store.set(KEY_GOAL_OPEN, '1', true);
+      this.goal(GOAL_CHAT_OPEN);
     }
     this.tab.hidden = true;
     this.unread = 0;
@@ -527,8 +630,7 @@ class ChatWidget {
             page_title: document.title.slice(0, 300),
             referrer: document.referrer.slice(0, 2000) || undefined,
             utm: JSON.parse(store.get(KEY_UTM, true) ?? '{}') as Record<string, string>,
-            ym_uid: cookie('_ym_uid') ?? undefined,
-            ga_cid: cookie('_ga') ?? undefined,
+            ...visitIds(),
           }),
         });
         if (r.status === 400) {
@@ -668,8 +770,7 @@ class ChatWidget {
             page_title: document.title.slice(0, 300),
             referrer: document.referrer.slice(0, 2000) || undefined,
             utm: JSON.parse(store.get(KEY_UTM, true) ?? '{}') as Record<string, string>,
-            ym_uid: cookie('_ym_uid') ?? undefined,
-            ga_cid: cookie('_ga') ?? undefined,
+            ...visitIds(),
           }),
         });
         if (r.status === 400) {

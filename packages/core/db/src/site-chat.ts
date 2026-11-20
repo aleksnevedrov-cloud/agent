@@ -24,6 +24,8 @@ export interface SiteChatSession {
   referrer: string | null;
   utm: Record<string, string>;
   ymUid: string | null;
+  /** yclid Яндекс Директа (cookie сайта rfd_yclid). */
+  yclid: string | null;
   gaCid: string | null;
   ip: string | null;
   userAgent: string | null;
@@ -83,6 +85,7 @@ export interface NewSiteSession {
   referrer?: string | null;
   utm?: Record<string, string>;
   ymUid?: string | null;
+  yclid?: string | null;
   gaCid?: string | null;
   ip?: string | null;
   userAgent?: string | null;
@@ -121,6 +124,7 @@ function session(r: Record<string, unknown>): SiteChatSession {
     referrer: (r.referrer as string | null) ?? null,
     utm: (r.utm as Record<string, string> | null) ?? {},
     ymUid: (r.ym_uid as string | null) ?? null,
+    yclid: (r.yclid as string | null) ?? null,
     gaCid: (r.ga_cid as string | null) ?? null,
     ip: (r.ip as string | null) ?? null,
     userAgent: (r.user_agent as string | null) ?? null,
@@ -168,8 +172,8 @@ export class SiteChatRepo {
     const state = s.state ?? 'active';
     const { rows } = await this.db.query(
       `INSERT INTO site_chat_sessions
-         (id, account_id, name, phone, email, consent_at, page_url, page_title, referrer, utm, ym_uid, ga_cid, ip, user_agent, state, amo_sync)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         (id, account_id, name, phone, email, consent_at, page_url, page_title, referrer, utm, ym_uid, ga_cid, ip, user_agent, state, amo_sync, yclid)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        RETURNING *`,
       [
         id,
@@ -189,6 +193,7 @@ export class SiteChatRepo {
         state,
         // Спам в amoCRM не идёт.
         state === 'spam' ? 'failed' : 'pending',
+        s.yclid ?? null,
       ],
     );
     return session(rows[0] as Record<string, unknown>);
