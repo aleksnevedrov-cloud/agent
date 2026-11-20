@@ -101,10 +101,40 @@ function stream(req: FastifyRequest, reply: FastifyReply, service: SiteChatServi
   res.write(`retry: 3000\n\n`);
   send({ type: 'state', state: state as SiteEvent extends { state: infer S } ? S : never });
   for (const e of backlog) send(e);
-  const off = service.subscribe(sessionId, send);
+  let lastId = Math.max(0, ...backlog.map((e) => (e.type === 'message' ? e.message.id : 0)));
+  let lastState = state;
+  const off = service.subscribe(sessionId, (e) => {
+    if (e.type === 'message') lastId = Math.max(lastId, e.message.id);
+    send(e);
+  });
   const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
+  // Сообщения менеджера и смену состояния пишет воркер — раз в 3 с проверяем базу, заодно отмечаем «окно на связи».
+  let busy = false;
+  const poll = setInterval(() => {
+    if (busy) return;
+    busy = true;
+    service
+      .pull(sessionId, lastId)
+      .then((p) => {
+        if (!p) return;
+        for (const m of p.messages) {
+          if (m.id <= lastId) continue;
+          lastId = m.id;
+          send({ type: 'message', message: m });
+        }
+        if (p.state !== lastState) {
+          lastState = p.state;
+          send({ type: 'state', state: p.state });
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        busy = false;
+      });
+  }, 3000);
   const close = () => {
     clearInterval(ping);
+    clearInterval(poll);
     off();
     if (!res.writableEnded) res.end();
   };

@@ -28,6 +28,8 @@ export function widgetSiteChatRoutes(api: FastifyInstance, deps: Deps, principal
         amoLeadId: s.amoLeadId,
         amoError: s.amoError,
         pageUrl: s.pageUrl,
+        /** Окно на связи: пинг был меньше 90 с назад. */
+        online: !!s.seenAt && Date.now() - s.seenAt.getTime() < 90_000,
       })),
     };
   });

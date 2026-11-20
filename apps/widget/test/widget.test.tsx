@@ -268,7 +268,7 @@ describe('вкладка «Чат сайта» (RFD-SITE-CHAT-AGENT)', () => {
         demoUrl: 'https://ai.test.ru/site-chat/demo',
         costTodayRub: 12.5,
         dailyBudgetRub: 500,
-        sessions: [{ id: 'a'.repeat(32), createdAt: '2026-11-19T10:00:00Z', lastSeenAt: '2026-11-19T10:05:00Z', name: 'Павел', phone: '79261234567', state: 'handed_off', messages: 4, amoSync: 'sent', amoLeadId: 555, amoError: null, pageUrl: null }],
+        sessions: [{ id: 'a'.repeat(32), createdAt: '2026-11-19T10:00:00Z', lastSeenAt: '2026-11-19T10:05:00Z', name: 'Павел', phone: '79261234567', state: 'handed_off', messages: 4, amoSync: 'sent', amoLeadId: 555, amoError: null, pageUrl: null, online: true }],
       },
     });
     const cb = createCallbacks(self, 'https://ai.test.ru');

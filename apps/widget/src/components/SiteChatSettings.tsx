@@ -127,6 +127,10 @@ export function SiteChatSettings({ api, value, onChange }: { api: WidgetApi; val
         <input style={{ ...s.input, marginTop: 6 }} placeholder="Источник заявки" value={value.sourceName} onChange={(e) => onChange({ sourceName: e.target.value })} />
       </Field>
 
+      <Field label="Ответ клиенту из amoCRM" hint="В карточке заявки напишите примечание, начав его со слова «Клиенту:» — текст появится в окне на сайте с вашим именем в течение 30 секунд, агент замолкает. Ответы клиента приходят примечаниями, как обычно. Когда клиент закрывает сайт, в заявку пишется «Клиент закрыл сайт в …», вернулся — «снова на сайте».">
+        <div style={s.muted}>Пример примечания: «Клиенту: Да, высоту 2100 делаем, доплата 15 %».</div>
+      </Field>
+
       <Field label="Последние диалоги с сайта">
         {state.status === 'loading' && <div style={s.muted}>Загрузка…</div>}
         {state.status === 'error' && <div style={s.error}>{state.message}</div>}
@@ -139,6 +143,7 @@ export function SiteChatSettings({ api, value, onChange }: { api: WidgetApi; val
                 <th style={{ textAlign: 'left' }}>Клиент</th>
                 <th style={{ textAlign: 'left' }}>Сообщений</th>
                 <th style={{ textAlign: 'left' }}>Диалог</th>
+                <th style={{ textAlign: 'left' }}>На сайте</th>
                 <th style={{ textAlign: 'left' }}>Заявка</th>
               </tr>
             </thead>
@@ -151,6 +156,7 @@ export function SiteChatSettings({ api, value, onChange }: { api: WidgetApi; val
                   </td>
                   <td>{x.messages}</td>
                   <td>{STATE_LABEL[x.state] ?? x.state}</td>
+                  <td>{x.online ? 'да' : 'нет'}</td>
                   <td style={x.amoSync === 'failed' ? s.error : undefined}>
                     {SYNC_LABEL[x.amoSync] ?? x.amoSync}
                     {x.amoLeadId ? ` #${x.amoLeadId}` : ''}

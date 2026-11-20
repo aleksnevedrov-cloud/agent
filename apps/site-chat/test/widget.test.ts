@@ -169,6 +169,35 @@ describe('widget.js (RFD-SITE-CHAT-AGENT)', () => {
     expect(sessionStorage.getItem('rfd_chat_popup_done')).toBe('1');
   });
 
+  it('ответ менеджера: серый пузырь с подписью «Менеджер Имя», счётчик на ярлыке при закрытом окне', async () => {
+    localStorage.setItem('rfd_chat_session', 'b'.repeat(32));
+    localStorage.setItem('rfd_chat_open', '1');
+    globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith('/site-chat/v1/config')) return new Response(JSON.stringify(config), { status: 200 });
+      if (url.includes('/site-chat/v1/messages'))
+        return new Response(
+          JSON.stringify({
+            state: 'handed_off',
+            messages: [
+              { id: 1, author: 'client', text: 'вопрос', products: [], at: new Date().toISOString() },
+              { id: 2, author: 'manager', authorName: 'Иван Петров', text: 'Да, делаем 2100', products: [], at: new Date().toISOString() },
+              { id: 3, author: 'manager', authorName: 'Иван Петров', text: 'Доплата 15 %', products: [], at: new Date().toISOString() },
+            ],
+          }),
+          { status: 200 },
+        );
+      return new Response('{}', { status: 404 });
+    }) as typeof fetch;
+    load();
+    await flush();
+    await flush();
+    const msgs = shadow().querySelector('.msgs')!;
+    expect([...msgs.querySelectorAll('.who')].map((w) => w.textContent)).toEqual(['Менеджер Иван Петров']);
+    expect(msgs.querySelectorAll('.m.manager')).toHaveLength(2);
+    expect(msgs.querySelector('.m.manager')!.textContent).toContain('Да, делаем 2100');
+  });
+
   it('цели Яндекс Метрики: открыл чат, отправил форму, сообщение, передан менеджеру; счётчики находятся сами, дублируется в dataLayer', async () => {
     const ym = vi.fn();
     (window as unknown as { ym: unknown }).ym = ym;

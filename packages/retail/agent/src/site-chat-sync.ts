@@ -19,7 +19,7 @@ export const SITE_CHAT_IDLE_EVERY_MS = 60_000;
 const TRAILING_AFTER_MS = 2 * 60_000;
 export const SITE_SOURCE_UID = 'site-chat';
 
-export type SiteSyncApi = Pick<AmoApiClient, 'findContactsByPhone' | 'findContactsByEmail' | 'createUnsortedForm' | 'addContactFields' | 'addLeadNote' | 'updateLeadNote' | 'createTask' | 'getLead' | 'listUsers'> & { readonly domain: string };
+export type SiteSyncApi = Pick<AmoApiClient, 'findContactsByPhone' | 'findContactsByEmail' | 'createUnsortedForm' | 'addContactFields' | 'addLeadNote' | 'updateLeadNote' | 'createTask' | 'getLead' | 'listUsers' | 'getLeadNotes'> & { readonly domain: string };
 
 export interface SiteSyncDeps {
   siteChat: SiteChatRepo;
@@ -60,7 +60,7 @@ export function firstNoteText(s: SiteChatSession, text: string): string {
   return lines.join('\n');
 }
 
-const who = { client: 'Клиент', agent: 'Амма', system: 'Система' } as const;
+const who = { client: 'Клиент', agent: 'Амма', system: 'Система', manager: 'Менеджер' } as const;
 
 export function pairNoteText(messages: SiteChatMessage[]): string {
   return ['Чат сайта', ...messages.map((m) => `[${hhmm(m.createdAt)}] ${who[m.author]}: ${m.text}`)].join('\n');
@@ -164,6 +164,7 @@ function reasonLabel(reason: string): string {
   const map: Record<string, string> = {
     client_request: 'просит менеджера',
     callback: 'заказ звонка с сайта',
+    manager: 'менеджер ответил в чате',
     complaint: 'жалоба',
     discount: 'вопрос о скидке',
     custom_order: 'нестандартный заказ',
@@ -207,6 +208,79 @@ export async function runSiteChatSync(d: SiteSyncDeps): Promise<SiteSyncResult> 
           details: { channel: 'site', sessionId: s.id, attempts: r.attempts, stage: s.amoLeadId ? 'notes' : 'lead' },
         });
       }
+    }
+  }
+  return out;
+}
+
+/** Примечание менеджера, которое уходит клиенту в окно: начинается с «Клиенту:». */
+export const MANAGER_PREFIX = /^\s*клиенту\s*[:：]\s*/iu;
+/** Окно считается закрытым, если пинга нет дольше этого времени (пинг SSE — 25 с, опрос — 3 с). */
+export const PRESENCE_OFFLINE_MS = 90_000;
+
+export interface SiteLiveResult {
+  sessions: number;
+  managerMessages: number;
+  presenceNotes: number;
+  errors: number;
+}
+
+/**
+ * Дополнение 20.11.2026: живые диалоги с заявкой — раз в 30 с.
+ * 1. Ответы менеджера: примечание в заявке, начинающееся с «Клиенту:», показывается в окне сайта с именем автора;
+ *    агент после этого замолкает (handed_off / manager), ответы клиента по-прежнему падают в заявку.
+ * 2. Присутствие: окно пингует сервер; нет пинга 90 с → примечание «Клиент закрыл сайт в ЧЧ:ММ», вернулся → «снова на сайте».
+ */
+export async function runSiteChatLive(d: SiteSyncDeps): Promise<SiteLiveResult> {
+  const now = d.now?.() ?? new Date();
+  const out: SiteLiveResult = { sessions: 0, managerMessages: 0, presenceNotes: 0, errors: 0 };
+  const apis = new Map<number, { api: SiteSyncApi; users: Map<number, string> | null }>();
+  for (let s of await d.siteChat.liveWithLead(now)) {
+    const leadId = s.amoLeadId;
+    if (!leadId) continue;
+    out.sessions += 1;
+    try {
+      let a = apis.get(s.accountId);
+      if (!a) {
+        a = { api: (await d.amo(s.accountId)).api, users: null };
+        apis.set(s.accountId, a);
+      }
+      // 1. Ответы менеджера.
+      // Запас 5 минут на расхождение часов amo и сервера; дубли отсекает hasNote по id примечания.
+      const since = ((s.notesCheckedAt ?? s.createdAt).getTime() - 5 * 60_000) / 1000;
+      const notes = (await a.api.getLeadNotes(leadId, 50)).filter((n) => n.note_type === 'common' && n.created_at >= Math.floor(since) && MANAGER_PREFIX.test(n.params?.text ?? ''));
+      let checked = s.notesCheckedAt ?? s.createdAt;
+      for (const n of notes.sort((x, y) => x.created_at - y.created_at)) {
+        const at = new Date(n.created_at * 1000);
+        if (at > checked) checked = at;
+        if (await d.siteChat.hasNote(s.id, n.id)) continue;
+        const text = (n.params?.text ?? '').replace(MANAGER_PREFIX, '').trim();
+        if (!text) continue;
+        if (!a.users) a.users = new Map((await a.api.listUsers().catch(() => [])).map((u) => [u.id, u.name]));
+        await d.siteChat.addMessage(s.id, 'manager', text, { sync: 'skipped', amoNoteId: n.id, authorName: a.users.get(n.created_by) ?? null });
+        out.managerMessages += 1;
+        if (s.state === 'active') {
+          await d.siteChat.setState(s.id, 'handed_off', 'manager');
+          s = { ...s, state: 'handed_off', handoffReason: 'manager' };
+        }
+      }
+      if (checked > (s.notesCheckedAt ?? new Date(0))) await d.siteChat.setNotesChecked(s.id, checked);
+      // 2. Присутствие.
+      if (s.seenAt) {
+        const online = now.getTime() - s.seenAt.getTime() < PRESENCE_OFFLINE_MS;
+        if (!online && s.presenceNoted !== 'offline') {
+          await a.api.addLeadNote(leadId, `Чат сайта: клиент закрыл сайт в ${hhmm(s.seenAt)}.`);
+          await d.siteChat.setPresenceNoted(s.id, 'offline');
+          out.presenceNotes += 1;
+        } else if (online && s.presenceNoted === 'offline') {
+          await a.api.addLeadNote(leadId, `Чат сайта: клиент снова на сайте (${hhmm(now)}), окно чата открыто.`);
+          await d.siteChat.setPresenceNoted(s.id, 'online');
+          out.presenceNotes += 1;
+        }
+      }
+    } catch (err) {
+      out.errors += 1;
+      await d.journal.add({ accountId: s.accountId, leadId, kind: 'error', summary: `Чат сайта: ответы менеджера / присутствие — ${(err as Error).message}`.slice(0, 2000), details: { channel: 'site', sessionId: s.id } });
     }
   }
   return out;

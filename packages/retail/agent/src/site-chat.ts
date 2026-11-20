@@ -216,7 +216,7 @@ export async function runSiteTurn(d: SiteTurnDeps, sessionId: string, incoming: 
 
 /** Сводка без модели: когда модель недоступна или сломалась — хотя бы переписка в заявке. */
 export function transcriptSummary(messages: SiteChatMessage[]): string {
-  const lines = messages.filter((m) => m.author !== 'system').slice(-10).map((m) => `${m.author === 'client' ? 'Клиент' : 'Амма'}: ${m.text.slice(0, 300)}`);
+  const lines = messages.filter((m) => m.author !== 'system').slice(-10).map((m) => `${m.author === 'client' ? 'Клиент' : m.author === 'manager' ? 'Менеджер' : 'Амма'}: ${m.text.slice(0, 300)}`);
   return lines.length ? `Переписка:\n${lines.join('\n')}` : 'Клиент не писал в чат.';
 }
 

@@ -28,10 +28,12 @@ interface Product {
 
 interface Msg {
   id: number;
-  author: 'client' | 'agent' | 'system';
+  author: 'client' | 'agent' | 'system' | 'manager';
   text: string;
   products: Product[];
   at: string;
+  /** Имя менеджера, ответившего из amoCRM. */
+  authorName?: string;
   /** Локальные пометки: не доставлено / отправляется. */
   local?: 'sending' | 'failed';
 }
@@ -211,10 +213,10 @@ const STYLES = `
 .msgs{display:flex;flex-direction:column;gap:8px}
 .m{max-width:84%;padding:8px 12px;border-radius:14px;font-size:14px;line-height:1.35;white-space:pre-wrap;word-break:break-word}
 .m.client{align-self:flex-end;background:${COLORS.green};color:#fff;border-bottom-right-radius:4px}
-.m.agent{align-self:flex-start;background:${COLORS.field};color:${COLORS.text};border-bottom-left-radius:4px}
+.m.agent,.m.manager{align-self:flex-start;background:${COLORS.field};color:${COLORS.text};border-bottom-left-radius:4px}
 .m.system{align-self:center;background:transparent;color:${COLORS.grey};font-size:12px;text-align:center}
 .meta{font-size:10px;opacity:.7;margin-top:4px;text-align:right}
-.m.agent .meta{text-align:left}
+.m.agent .meta,.m.manager .meta{text-align:left}
 .who{font-size:11px;color:${COLORS.grey2};margin:0 0 2px 4px}
 .cards{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 .card{display:flex;gap:8px;align-items:center;background:#fff;border:1px solid #e3e6e8;border-radius:8px;padding:6px;text-decoration:none;color:${COLORS.text}}
@@ -761,10 +763,15 @@ class ChatWidget {
     if (old && m.id > 0) return;
     const box = el('div', `m ${m.author}`);
     if (m.id > 0) box.dataset.id = String(m.id);
-    if (m.author === 'agent' && (this.msgsEl.lastElementChild as HTMLElement | null)?.classList.contains('client') !== false) {
-      // Имя агента над первым пузырём серии.
+    if (m.author === 'agent' || m.author === 'manager') {
+      // Имя над первым пузырём серии: «Амма» или имя менеджера из amoCRM.
+      const who = m.author === 'agent' ? 'Амма' : `Менеджер${m.authorName ? ` ${m.authorName}` : ''}`;
       const prev = this.msgsEl.lastElementChild as HTMLElement | null;
-      if (!prev || !prev.classList.contains('agent')) this.msgsEl.appendChild(el('div', 'who', 'Амма'));
+      if (!prev || !prev.classList.contains(m.author) || prev.dataset.who !== who) {
+        const label = el('div', 'who', who);
+        this.msgsEl.appendChild(label);
+      }
+      box.dataset.who = who;
     }
     box.appendChild(el('span', undefined, m.text));
     if (m.products?.length) {

@@ -332,7 +332,7 @@ export interface SiteChatOverview {
   demoUrl: string;
   costTodayRub: number;
   dailyBudgetRub: number;
-  sessions: { id: string; createdAt: string; lastSeenAt: string; name: string; phone: string; state: string; messages: number; amoSync: string; amoLeadId: number | null; amoError: string | null; pageUrl: string | null }[];
+  sessions: { id: string; createdAt: string; lastSeenAt: string; name: string; phone: string; state: string; messages: number; amoSync: string; amoLeadId: number | null; amoError: string | null; pageUrl: string | null; online: boolean }[];
 }
 
 export interface Dictionaries {

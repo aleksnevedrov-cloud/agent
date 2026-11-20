@@ -28,7 +28,7 @@ import { amoRedirectUri, loadEnv, SecretBox, TelegramAlerter } from '@core/share
 import { runWazzupFiles, WAZZUP_FILES_EVERY_MS, WAZZUP_FILES_JOB } from '@retail/agent';
 import { handleReactivationReply, REACTIVATION_EVERY_MS, REACTIVATION_JOB, runReactivationAll } from '@retail/agent';
 // RFD-SITE-CHAT-AGENT: запись чата сайта в amoCRM и закрытие диалогов по простою.
-import { runSiteChatIdleAll, runSiteChatSync, SITE_CHAT_IDLE_EVERY_MS, SITE_CHAT_IDLE_JOB, SITE_CHAT_SYNC_EVERY_MS, SITE_CHAT_SYNC_JOB, type SiteTurnDeps } from '@retail/agent';
+import { runSiteChatIdleAll, runSiteChatLive, runSiteChatSync, SITE_CHAT_IDLE_EVERY_MS, SITE_CHAT_IDLE_JOB, SITE_CHAT_SYNC_EVERY_MS, SITE_CHAT_SYNC_JOB, type SiteTurnDeps } from '@retail/agent';
 import { reactivationDeps } from './reactivation-deps.ts';
 import { buildLocalSources } from './local-sources.ts';
 import { amoRaw, CALLS_DAY_CHECK_EVERY_MS, CALLS_DAY_JOB, CALLS_POLL_EVERY_MS, CALLS_POLL_JOB, CALLS_QUEUE, CallsRepo, DaySummariesRepo, REFUSAL_EVERY_MS, REFUSAL_JOB, RefusalsRepo, runCallsPollAll, runDaySummaryIfDue, runRefusalPollAll, runUnsortedCallbackAll, UNSORTED_CALLBACK_EVERY_MS, UNSORTED_CALLBACK_JOB, type CallsDeps } from '@core/calls';
@@ -281,9 +281,13 @@ const callsWorker = new Worker(
       return { accounts: results.length, analyzed: results.reduce((n, r) => n + r.analyzed, 0) };
     }
     if (job.name === SITE_CHAT_SYNC_JOB) {
-      const r = await runSiteChatSync({ siteChat: siteChatRepo, settings, journal, amo: async (accountId) => ({ api: await amoClient(accountId) }) });
+      const siteSync = { siteChat: siteChatRepo, settings, journal, amo: async (accountId: number) => ({ api: await amoClient(accountId) }) };
+      const r = await runSiteChatSync(siteSync);
       if (r.leads || r.notes || r.summaries || r.tasks || r.errors) log.info({ ...r }, 'site-chat-sync: запись чата сайта в amoCRM');
-      return r;
+      // Ответы менеджера «Клиенту: …» в окно и отметки «закрыл сайт / снова на сайте».
+      const live = await runSiteChatLive(siteSync);
+      if (live.managerMessages || live.presenceNotes || live.errors) log.info({ ...live }, 'site-chat-live: ответы менеджера и присутствие клиента');
+      return { ...r, live };
     }
     if (job.name === SITE_CHAT_IDLE_JOB) {
       const r = await runSiteChatIdleAll(siteTurn);

@@ -1,7 +1,7 @@
 import { JournalRepo, SettingsRepo, SiteChatRepo, widgetSettingsSchema } from '@core/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { seeded, type Seeded } from '../../../core/tools/test/fixtures.ts';
-import { firstNoteText, groupForNotes, leadName, runSiteChatSync, type SiteSyncApi, type SiteSyncDeps } from '../src/site-chat-sync.ts';
+import { firstNoteText, groupForNotes, leadName, MANAGER_PREFIX, runSiteChatLive, runSiteChatSync, type SiteSyncApi, type SiteSyncDeps } from '../src/site-chat-sync.ts';
 
 const ACC = 1;
 let s: Seeded;
@@ -21,7 +21,7 @@ beforeAll(async () => {
 afterAll(async () => s.drop());
 
 /** Подделка amo: запоминает вызовы, умеет падать. */
-function fakeApi(opts: { contactsByPhone?: { id: number }[]; contactsByEmail?: { id: number }[]; failUnsorted?: boolean; failNotes?: boolean } = {}) {
+function fakeApi(opts: { contactsByPhone?: { id: number }[]; contactsByEmail?: { id: number }[]; failUnsorted?: boolean; failNotes?: boolean; notes?: { id: number; note_type: string; created_at: number; created_by: number; params?: { text?: string } }[] } = {}) {
   const calls: { method: string; args: unknown[] }[] = [];
   let noteSeq = 100;
   const api = {
@@ -57,7 +57,11 @@ function fakeApi(opts: { contactsByPhone?: { id: number }[]; contactsByEmail?: {
       return { responsible_user_id: 0 } as never;
     },
     async listUsers() {
-      return [{ id: 9, name: 'Админ', email: null, isActive: true, isAdmin: true }] as never;
+      return [{ id: 9, name: 'Админ', email: null, isActive: true, isAdmin: true }, { id: 5, name: 'Иван Петров', email: null, isActive: true, isAdmin: false }] as never;
+    },
+    async getLeadNotes(leadId: number) {
+      calls.push({ method: 'getLeadNotes', args: [leadId] });
+      return (opts.notes ?? []) as never;
     },
   } satisfies SiteSyncApi;
   return { api, calls };
@@ -89,7 +93,7 @@ describe('тексты', () => {
   });
 
   it('группировка примечаний: пары «вопрос → ответ», хвост без ответа — только после паузы или закрытия', () => {
-    const m = (id: number, author: 'client' | 'agent', minsAgo: number) => ({ id, author, createdAt: new Date(NOW.getTime() - minsAgo * 60_000), text: String(id), sessionId: 's', products: [], costRub: 0, amoNoteId: null, amoSync: 'pending' as const });
+    const m = (id: number, author: 'client' | 'agent', minsAgo: number) => ({ id, author, createdAt: new Date(NOW.getTime() - minsAgo * 60_000), text: String(id), sessionId: 's', products: [], costRub: 0, amoNoteId: null, amoSync: 'pending' as const, authorName: null });
     const groups = groupForNotes([m(1, 'client', 10), m(2, 'client', 9), m(3, 'agent', 8), m(4, 'client', 1)], { state: 'active' }, NOW);
     expect(groups.map((g) => g.map((x) => x.id))).toEqual([[1, 2, 3]]);
     expect(groupForNotes([m(4, 'client', 3)], { state: 'active' }, NOW).map((g) => g.map((x) => x.id))).toEqual([[4]]);
@@ -174,5 +178,56 @@ describe('runSiteChatSync', () => {
     expect(ok.calls.filter((c) => c.method === 'createUnsortedForm')).toHaveLength(0);
     got = (await repo.get(sess.id))!;
     expect(got.amoLeadId).toBe(500);
+  });
+});
+
+describe('дополнение 20.11.2026: ответы менеджера в окно и присутствие клиента', () => {
+  it('примечание «Клиенту: …» показывается в окне с именем автора, агент замолкает, повторно не дублируется; чужие примечания не трогаются', async () => {
+    const { sess } = await session('+7 926 900-00-01', 'вопрос менеджеру');
+    const { api } = fakeApi();
+    await runSiteChatSync(deps(api)); // заявка 500
+    const sec = Math.floor(Date.now() / 1000);
+    const notes = [
+      { id: 1001, note_type: 'common', created_at: sec - 100, created_by: 9, params: { text: 'Сообщение с сайта:\nвопрос менеджеру' } }, // наше
+      { id: 1002, note_type: 'common', created_at: sec - 50, created_by: 5, params: { text: 'клиенту:  Да, высоту 2100 делаем, доплата 15 %' } },
+      { id: 1003, note_type: 'common', created_at: sec - 40, created_by: 5, params: { text: 'Внутренняя заметка без префикса' } },
+      { id: 1004, note_type: 'common', created_at: sec - 1_000_000, created_by: 5, params: { text: 'Клиенту: старое, до заявки' } },
+    ];
+    const live = fakeApi({ notes });
+    const r1 = await runSiteChatLive(deps(live.api));
+    // Подделка отдаёт одни и те же примечания всем заявкам (id 500) — считаем только нашу сессию.
+    expect(r1.errors).toBe(0);
+    expect(r1.managerMessages).toBeGreaterThanOrEqual(1);
+    const msgs = await repo.messages(sess.id);
+    const m = msgs.find((x) => x.author === 'manager')!;
+    expect(m).toMatchObject({ text: 'Да, высоту 2100 делаем, доплата 15 %', authorName: 'Иван Петров', amoNoteId: 1002, amoSync: 'skipped' });
+    expect(await repo.get(sess.id)).toMatchObject({ state: 'handed_off', handoffReason: 'manager' });
+    const r2 = await runSiteChatLive(deps(live.api));
+    expect(r2.managerMessages).toBe(0);
+    expect((await repo.messages(sess.id)).filter((x) => x.author === 'manager')).toHaveLength(1);
+    expect(MANAGER_PREFIX.test('КЛИЕНТУ: текст')).toBe(true);
+    expect(MANAGER_PREFIX.test('Клиент ушёл')).toBe(false);
+    // Пара «вопрос → ответ менеджера» в amoCRM не дублируется: сообщение менеджера skipped.
+    expect(live.calls.filter((c) => c.method === 'addLeadNote')).toHaveLength(0);
+  });
+
+  it('присутствие: нет пинга 90 с → «закрыл сайт», пинг вернулся → «снова на сайте», повторно не пишется', async () => {
+    const { sess } = await session('+7 926 900-00-02', 'ещё вопрос');
+    const { api } = fakeApi();
+    await runSiteChatSync(deps(api));
+    const live = fakeApi();
+    // Окно ещё не подключалось — ничего.
+    expect((await runSiteChatLive(deps(live.api))).presenceNotes).toBe(0);
+    await repo.seen(sess.id, new Date(Date.now() - 20_000));
+    expect((await runSiteChatLive(deps(live.api))).presenceNotes).toBe(0);
+    await repo.seen(sess.id, new Date(Date.now() - 120_000));
+    expect((await runSiteChatLive(deps(live.api))).presenceNotes).toBe(1);
+    expect((await runSiteChatLive(deps(live.api))).presenceNotes).toBe(0);
+    await repo.seen(sess.id, new Date());
+    expect((await runSiteChatLive(deps(live.api))).presenceNotes).toBe(1);
+    const texts = live.calls.filter((c) => c.method === 'addLeadNote').map((c) => String(c.args[1]));
+    expect(texts[0]).toMatch(/^Чат сайта: клиент закрыл сайт в \d{2}:\d{2}\.$/);
+    expect(texts[1]).toContain('снова на сайте');
+    expect(await repo.get(sess.id)).toMatchObject({ presenceNoted: 'online' });
   });
 });

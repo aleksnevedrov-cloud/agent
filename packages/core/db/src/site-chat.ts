@@ -7,7 +7,7 @@ import type { Db } from './pool.ts';
  * запись в amoCRM идёт очередью воркера (поля amo_*), агент отвечает независимо от неё.
  */
 export type SiteChatState = 'active' | 'handed_off' | 'closed' | 'spam';
-export type SiteChatAuthor = 'client' | 'agent' | 'system';
+export type SiteChatAuthor = 'client' | 'agent' | 'system' | 'manager';
 export type SiteSync = 'pending' | 'sent' | 'failed';
 
 export interface SiteChatSession {
@@ -42,6 +42,12 @@ export interface SiteChatSession {
   taskSync: 'none' | 'pending' | 'sent';
   taskId: number | null;
   closedAt: Date | null;
+  /** Окно на связи: последний SSE-пинг или опрос; null — ещё не подключалось. */
+  seenAt: Date | null;
+  /** Что записано в заявку последним: offline («закрыл сайт») / online («снова на сайте»). */
+  presenceNoted: 'offline' | 'online' | null;
+  /** Примечания менеджера («Клиенту: …») прочитаны до этого момента. */
+  notesCheckedAt: Date | null;
 }
 
 export interface SiteChatProduct {
@@ -62,6 +68,8 @@ export interface SiteChatMessage {
   costRub: number;
   amoNoteId: number | null;
   amoSync: SiteSync | 'skipped';
+  /** Имя менеджера (author = manager). */
+  authorName: string | null;
 }
 
 export interface NewSiteSession {
@@ -131,6 +139,9 @@ function session(r: Record<string, unknown>): SiteChatSession {
     taskSync: r.task_sync as SiteChatSession['taskSync'],
     taskId: r.task_id === null || r.task_id === undefined ? null : Number(r.task_id),
     closedAt: (r.closed_at as Date | null) ?? null,
+    seenAt: (r.seen_at as Date | null) ?? null,
+    presenceNoted: (r.presence_noted as 'offline' | 'online' | null) ?? null,
+    notesCheckedAt: (r.notes_checked_at as Date | null) ?? null,
   };
 }
 
@@ -145,6 +156,7 @@ function message(r: Record<string, unknown>): SiteChatMessage {
     costRub: Number(r.cost_rub),
     amoNoteId: r.amo_note_id === null || r.amo_note_id === undefined ? null : Number(r.amo_note_id),
     amoSync: r.amo_sync as SiteChatMessage['amoSync'],
+    authorName: (r.author_name as string | null) ?? null,
   };
 }
 
@@ -191,6 +203,36 @@ export class SiteChatRepo {
     await this.db.query('UPDATE site_chat_sessions SET last_seen_at = $2 WHERE id = $1', [id, at]);
   }
 
+  /** Окно на связи: SSE-пинг или опрос истории. Простой диалога (last_seen_at) не трогает. */
+  async seen(id: string, at: Date = new Date()): Promise<void> {
+    await this.db.query('UPDATE site_chat_sessions SET seen_at = $2 WHERE id = $1', [id, at]);
+  }
+
+  /** Примечание менеджера с этим id уже показано в окне? */
+  async hasNote(sessionId: string, noteId: number): Promise<boolean> {
+    const { rows } = await this.db.query('SELECT 1 FROM site_chat_messages WHERE session_id = $1 AND amo_note_id = $2 LIMIT 1', [sessionId, noteId]);
+    return rows.length > 0;
+  }
+
+  async setNotesChecked(id: string, at: Date): Promise<void> {
+    await this.db.query('UPDATE site_chat_sessions SET notes_checked_at = $2 WHERE id = $1', [id, at]);
+  }
+
+  async setPresenceNoted(id: string, v: 'offline' | 'online'): Promise<void> {
+    await this.db.query('UPDATE site_chat_sessions SET presence_noted = $2 WHERE id = $1', [id, v]);
+  }
+
+  /** Живые диалоги с заявкой в amoCRM (не закрытые, активность за сутки) — для ответов менеджера и признака присутствия. */
+  async liveWithLead(now: Date = new Date(), limit = 200): Promise<SiteChatSession[]> {
+    const { rows } = await this.db.query(
+      `SELECT * FROM site_chat_sessions
+        WHERE amo_lead_id IS NOT NULL AND state IN ('active', 'handed_off') AND last_seen_at > $1
+        ORDER BY last_seen_at DESC LIMIT $2`,
+      [new Date(now.getTime() - 24 * 3600_000), limit],
+    );
+    return rows.map((r) => session(r as Record<string, unknown>));
+  }
+
   /** Сколько сессий (не спама) создано с этого IP за окно — лимиты 3 за 10 минут и 20 за сутки. */
   async countByIp(ip: string, sinceMs: number, now: Date = new Date()): Promise<number> {
     const { rows } = await this.db.query<{ n: string }>(
@@ -216,14 +258,15 @@ export class SiteChatRepo {
     sessionId: string,
     author: SiteChatAuthor,
     text: string,
-    opts: { products?: SiteChatProduct[]; costRub?: number; sync?: SiteChatMessage['amoSync'] } = {},
+    opts: { products?: SiteChatProduct[]; costRub?: number; sync?: SiteChatMessage['amoSync']; authorName?: string | null; amoNoteId?: number | null } = {},
   ): Promise<SiteChatMessage> {
     const { rows } = await this.db.query(
-      `INSERT INTO site_chat_messages (session_id, author, text, products, cost_rub, amo_sync)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [sessionId, author, text, JSON.stringify(opts.products ?? []), opts.costRub ?? 0, opts.sync ?? 'pending'],
+      `INSERT INTO site_chat_messages (session_id, author, text, products, cost_rub, amo_sync, author_name, amo_note_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [sessionId, author, text, JSON.stringify(opts.products ?? []), opts.costRub ?? 0, opts.sync ?? 'pending', opts.authorName ?? null, opts.amoNoteId ?? null],
     );
-    await this.db.query('UPDATE site_chat_sessions SET last_seen_at = now() WHERE id = $1', [sessionId]);
+    // Сообщение менеджера приходит из amoCRM, а не из окна — простой клиента оно не прерывает.
+    if (author !== 'manager') await this.db.query('UPDATE site_chat_sessions SET last_seen_at = now() WHERE id = $1', [sessionId]);
     return message(rows[0] as Record<string, unknown>);
   }
 

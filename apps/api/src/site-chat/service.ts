@@ -56,9 +56,11 @@ export interface SiteChatPublicMessage {
   text: string;
   products: SiteChatMessage['products'];
   at: string;
+  /** Имя менеджера (author = manager). */
+  authorName?: string;
 }
 
-export const publicMessage = (m: SiteChatMessage): SiteChatPublicMessage => ({ id: m.id, author: m.author, text: m.text, products: m.products, at: m.createdAt.toISOString() });
+export const publicMessage = (m: SiteChatMessage): SiteChatPublicMessage => ({ id: m.id, author: m.author, text: m.text, products: m.products, at: m.createdAt.toISOString(), ...(m.authorName ? { authorName: m.authorName } : {}) });
 
 export type SiteEvent = { type: 'message'; message: SiteChatPublicMessage } | { type: 'typing'; on: boolean } | { type: 'state'; state: SiteChatSession['state'] };
 
@@ -240,7 +242,16 @@ export class SiteChatService {
     const session = await this.d.siteChat.get(id);
     if (!session || session.state === 'spam' || this.expired(session)) return null;
     await this.d.siteChat.touch(id, this.now());
+    await this.d.siteChat.seen(id, this.now());
     return { session, messages: (await this.d.siteChat.messages(id, after)).map(publicMessage) };
+  }
+
+  /** Для SSE: окно на связи (пинг) и новые сообщения из базы — ответы менеджера пишет воркер, не этот процесс. */
+  async pull(id: string, after: number): Promise<{ state: SiteChatSession['state']; messages: SiteChatPublicMessage[] } | null> {
+    const session = await this.d.siteChat.get(id);
+    if (!session || session.state === 'spam') return null;
+    await this.d.siteChat.seen(id, this.now());
+    return { state: session.state, messages: (await this.d.siteChat.messages(id, after)).map(publicMessage) };
   }
 
   private expired(s: SiteChatSession): boolean {

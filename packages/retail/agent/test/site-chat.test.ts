@@ -148,7 +148,8 @@ describe('runSiteTurn — канал site', () => {
     const rich = await session('79990000015');
     await repo.addMessage(rich.id, 'agent', 'дорогой ответ', { costRub: 5 });
     await repo.addMessage(rich.id, 'client', 'ещё');
-    out = await runSiteTurn(deps(new ScriptedLlm([])), rich.id, 'ещё');
+    // Расход считается за «сегодня» по часам базы (created_at = now()) — «сейчас» должно быть реальным, не 19.11.
+    out = await runSiteTurn(deps(new ScriptedLlm([]), new Date()), rich.id, 'ещё');
     expect(out).toMatchObject({ kind: 'auto', why: 'budget' });
 
     await saveSettings();

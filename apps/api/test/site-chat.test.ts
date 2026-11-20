@@ -177,6 +177,24 @@ describe('чат сайта: форма → сессия → ответ аген
     expect((await ctx.deps.siteChat.list(ACC)).find((x) => x.phone === '79260001122')).toBeUndefined();
   });
 
+  it('ответ менеджера из базы виден в истории с именем, опрос истории отмечает «окно на связи» (seen_at)', async () => {
+    const sess = (await ctx.deps.siteChat.list(ACC)).find((x) => x.state === 'active' && x.email)!;
+    expect(sess.seenAt === null || sess.seenAt instanceof Date).toBe(true);
+    const m = await ctx.deps.siteChat.addMessage(sess.id, 'manager', 'Да, делаем 2100', { sync: 'skipped', authorName: 'Иван Петров', amoNoteId: 7001 });
+    const list = (await ctx.app.inject({ url: `/site-chat/v1/messages?session=${sess.id}&after=${m.id - 1}` })).json();
+    expect(list.messages).toEqual([expect.objectContaining({ id: m.id, author: 'manager', text: 'Да, делаем 2100', authorName: 'Иван Петров' })]);
+    const after = await ctx.deps.siteChat.get(sess.id);
+    expect(after!.seenAt).toBeInstanceOf(Date);
+    expect(Date.now() - after!.seenAt!.getTime()).toBeLessThan(10_000);
+    expect(await ctx.deps.siteChat.hasNote(sess.id, 7001)).toBe(true);
+    expect(await ctx.deps.siteChat.hasNote(sess.id, 7002)).toBe(false);
+    // Опрос для SSE: новые сообщения после id, без сдвига простоя.
+    const before = (await ctx.deps.siteChat.get(sess.id))!.lastSeenAt;
+    const pulled = await ctx.app.siteChatService.pull(sess.id, m.id - 1);
+    expect(pulled!.messages.map((x) => x.id)).toEqual([m.id]);
+    expect((await ctx.deps.siteChat.get(sess.id))!.lastSeenAt.getTime()).toBe(before.getTime());
+  });
+
   it('агент выключен — автоответ системным сообщением, заявка всё равно создана', async () => {
     await enable({ agentEnabled: false });
     const r = await post('/site-chat/v1/session', form({ phone: '+7 999 222-33-44', message: 'нужна входная' }), '10.1.1.4');
