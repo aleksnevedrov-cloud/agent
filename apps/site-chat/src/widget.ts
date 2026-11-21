@@ -153,6 +153,16 @@ function reachGoal(name: string, counterId: number | null | undefined, params?: 
   }
 }
 
+/** Страница перезагружена (F5), а не открыта переходом по ссылке. */
+const isReload = () => {
+  try {
+    const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+    return nav?.type === 'reload';
+  } catch {
+    return false;
+  }
+};
+
 const isMobile = () => (typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 480px)').matches : window.innerWidth <= 480);
 const fmtTime = (iso: string) => {
   const d = new Date(iso);
@@ -233,6 +243,7 @@ const STYLES = `
 .foot textarea{flex:1;border:0;background:${COLORS.field};border-radius:18px;padding:9px 14px;font-size:14px;max-height:90px;resize:none;outline:0}
 .send{width:38px;height:38px;border-radius:50%;border:0;background:${COLORS.green};color:#fff;cursor:pointer;font-size:16px;flex:none}
 .send:disabled{opacity:.5}
+.fresh{border:0;background:#fff;color:${COLORS.grey};font-size:11px;text-decoration:underline;cursor:pointer;padding:0 0 8px;width:100%}
 .offline{font-size:12px;color:${COLORS.error};text-align:center;padding:4px 10px;background:#fff6f5}
 .retry{color:#fff;text-decoration:underline;cursor:pointer;font-size:11px;margin-top:3px;display:block}
 .head.hc{padding-right:84px}
@@ -331,7 +342,8 @@ class ChatWidget {
       // Возвращение: история подгружается с сервера, окно — в прежнем состоянии.
       this.loadHistory().then(() => {
         // Раскрываем сами только при переходе по страницам в той же вкладке; новый визит — свёрнутый ярлык со счётчиком.
-        if (store.get(KEY_OPEN) === '1' && store.get(KEY_TAB, true) === '1') this.open();
+        // После обновления страницы (F5) — свёрнуто: история за ярлыком, а не поверх страницы (замечание 21.11.2026).
+        if (store.get(KEY_OPEN) === '1' && store.get(KEY_TAB, true) === '1' && !isReload()) this.open();
         else this.connect();
       });
     } else {
@@ -754,6 +766,11 @@ class ChatWidget {
     foot.appendChild(ta);
     foot.appendChild(send);
     win.appendChild(foot);
+    // Начать заново: прежний диалог остаётся в amoCRM (закроется по простою со сводкой), в окне — чистая форма.
+    const fresh = el('button', 'fresh', 'Начать новый диалог');
+    fresh.type = 'button';
+    fresh.addEventListener('click', () => this.resetSession());
+    win.appendChild(fresh);
     this.input = ta;
     for (const m of this.messages) this.appendMessage(m, false);
     this.scroll();

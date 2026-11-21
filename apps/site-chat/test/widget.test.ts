@@ -207,6 +207,25 @@ describe('widget.js (RFD-SITE-CHAT-AGENT)', () => {
     await flush();
     expect(shadow().querySelector('.win')).not.toBeNull();
     expect(shadow().querySelector('.msgs')!.textContent).toContain('было');
+    // «Начать новый диалог» — форма заново, память очищена.
+    shadow().querySelector<HTMLButtonElement>('.fresh')!.click();
+    expect(localStorage.getItem('rfd_chat_session')).toBeNull();
+    expect(shadow().querySelector('form [name=name]')).not.toBeNull();
+
+    // Обновление страницы (F5) в той же вкладке — свёрнуто, история цела.
+    localStorage.setItem('rfd_chat_session', 'd'.repeat(32));
+    localStorage.setItem('rfd_chat_open', '1');
+    const orig = performance.getEntriesByType;
+    performance.getEntriesByType = (() => [{ type: 'reload' }]) as unknown as typeof performance.getEntriesByType;
+    try {
+      load();
+      await flush();
+      await flush();
+      expect(shadow().querySelector('.win')).toBeNull();
+      expect(localStorage.getItem('rfd_chat_session')).toBe('d'.repeat(32));
+    } finally {
+      performance.getEntriesByType = orig;
+    }
   });
 
   it('ответ менеджера: серый пузырь с подписью «Менеджер Имя», счётчик на ярлыке при закрытом окне', async () => {
