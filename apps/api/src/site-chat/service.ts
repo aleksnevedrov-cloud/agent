@@ -123,6 +123,7 @@ export class SiteChatService {
       metrikaCounterId: sc.metrikaCounterId,
       limits: { messageMaxLen: LIMITS.messageMaxLen, messageMinIntervalMs: LIMITS.messageMinIntervalMs },
       sessionTtlDays: SESSION_TTL_DAYS,
+      memoryMinutes: sc.memoryMinutes,
     };
   }
 

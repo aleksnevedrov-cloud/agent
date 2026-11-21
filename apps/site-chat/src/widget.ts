@@ -16,6 +16,8 @@ interface Config {
   contacts?: { whatsapp: string; telegram: string; max: string; email: string };
   limits?: { messageMaxLen: number; messageMinIntervalMs: number };
   sessionTtlDays?: number;
+  /** Сколько минут помнить диалог после последнего сообщения; 0 — не помнить. */
+  memoryMinutes?: number;
 }
 
 interface Product {
@@ -1000,8 +1002,11 @@ class ChatWidget {
       }
       if (!r.ok) return;
       const j = (await r.json()) as { state: string; messages: Msg[] };
-      if (j.state === 'closed') {
-        // Диалог закрыт по простою (сводка и задача уже в amoCRM): при новом визите начинаем с чистого листа.
+      const last = j.messages.at(-1)?.at;
+      const mem = this.cfg.memoryMinutes ?? 60;
+      const stale = mem <= 0 || (!!last && Date.now() - new Date(last).getTime() > mem * 60_000);
+      if (j.state === 'closed' || stale) {
+        // Диалог закрыт по простою (сводка и задача уже в amoCRM) или память окна истекла — с чистого листа.
         this.session = null;
         store.set(KEY_SESSION, null);
         store.set(KEY_OPEN, '0');

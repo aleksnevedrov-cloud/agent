@@ -512,6 +512,8 @@ export const widgetSettingsSchema = z
         dailyBudgetRub: z.number().min(0).default(500),
         /** Клиент молчит столько минут — диалог закрывается: сводка и задача «Перезвонить». */
         idleCloseMin: z.number().int().min(1).max(240).default(10),
+        /** Сколько минут окно помнит диалог в браузере после последнего сообщения; 0 — каждый заход с чистого листа. */
+        memoryMinutes: z.number().int().min(0).max(10080).default(60),
         /** Воронка для заявки «Неразобранного» (по умолчанию «ДВЕРИ»). */
         pipelineId: z.number().int().positive().default(1873498),
         tag: z.string().max(100).default('Чат сайта'),

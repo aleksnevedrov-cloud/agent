@@ -190,6 +190,16 @@ describe('widget.js (RFD-SITE-CHAT-AGENT)', () => {
     shadow().querySelector<HTMLButtonElement>('.tab')!.click();
     expect(shadow().querySelector('form [name=name]')).not.toBeNull();
 
+    // Память окна истекла (последнее сообщение старше memoryMinutes) — тоже с чистого листа.
+    localStorage.setItem('rfd_chat_session', 'e'.repeat(32));
+    config = { ...config, memoryMinutes: 0 };
+    globalThis.fetch = history('active');
+    load();
+    await flush();
+    await flush();
+    expect(localStorage.getItem('rfd_chat_session')).toBeNull();
+    config = { ...config, memoryMinutes: 60 };
+
     // Живой диалог, но новая вкладка (sessionStorage пуст): свёрнут.
     localStorage.setItem('rfd_chat_session', 'd'.repeat(32));
     localStorage.setItem('rfd_chat_open', '1');

@@ -118,6 +118,11 @@ export function SiteChatSettings({ api, value, onChange }: { api: WidgetApi; val
           <NumberInput value={value.idleCloseMin} min={1} max={240} onChange={(x) => onChange({ idleCloseMin: x ?? 10 })} />
         </div>
         <div style={s.row}>
+          <span>Помнить диалог в браузере, мин после последнего сообщения</span>
+          <NumberInput value={value.memoryMinutes} min={0} max={10080} onChange={(x) => onChange({ memoryMinutes: x ?? 60 })} />
+          <span style={s.muted}>0 — каждый заход с чистого листа</span>
+        </div>
+        <div style={s.row}>
           <span>Воронка (id)</span>
           <NumberInput value={value.pipelineId} min={1} onChange={(x) => onChange({ pipelineId: x ?? 1873498 })} />
           <input style={{ ...s.input, width: 160 }} placeholder="Тег" value={value.tag} onChange={(e) => onChange({ tag: e.target.value })} />
