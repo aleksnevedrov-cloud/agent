@@ -21,6 +21,7 @@ const form = (over: Record<string, unknown> = {}) => ({
   referrer: 'https://yandex.ru/',
   utm: { utm_source: 'yandex', utm_medium: 'cpc', junk: 'x' },
   ym_uid: '123',
+  yclid: 'ycl-42',
   ...over,
 });
 
@@ -94,7 +95,7 @@ describe('чат сайта: форма → сессия → ответ аген
     expect(body.messages[1].text).toContain('Амма');
     const off = ctx.app.siteChatService.subscribe(body.session, (e) => events.push(e));
     const s = await ctx.deps.siteChat.get(body.session);
-    expect(s).toMatchObject({ phone: '79261234567', email: 'pavel@example.com', name: 'Павел', state: 'active', amoSync: 'pending', utm: { utm_source: 'yandex', utm_medium: 'cpc' }, ymUid: '123', ip: '10.1.1.1', pageTitle: 'Двери-книжки' });
+    expect(s).toMatchObject({ phone: '79261234567', email: 'pavel@example.com', name: 'Павел', state: 'active', amoSync: 'pending', utm: { utm_source: 'yandex', utm_medium: 'cpc' }, ymUid: '123', yclid: 'ycl-42', ip: '10.1.1.1', pageTitle: 'Двери-книжки' });
     await ctx.app.siteChatService.idle();
     off();
     const list = (await ctx.app.inject({ url: `/site-chat/v1/messages?session=${body.session}&after=0` })).json();

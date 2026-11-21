@@ -56,6 +56,7 @@ export function firstNoteText(s: SiteChatSession, text: string): string {
   const utm = Object.entries(s.utm).map(([k, v]) => `${k}=${v}`);
   if (utm.length) meta.push(`UTM: ${utm.join(', ')}`);
   if (s.ymUid) meta.push(`ClientID Метрики: ${s.ymUid}`);
+  if (s.yclid) meta.push(`yclid Директа: ${s.yclid}`);
   if (meta.length) lines.push('', ...meta);
   return lines.join('\n');
 }

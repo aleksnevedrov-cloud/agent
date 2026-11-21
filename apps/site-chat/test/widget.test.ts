@@ -345,3 +345,98 @@ describe('widget.js (RFD-SITE-CHAT-AGENT)', () => {
     }
   });
 });
+
+describe('кнопка «Онлайн-чат» на странице (задание от 20.11.2026)', () => {
+  it('window.RfMessenger: open/close/toggle и ready; data-action открывает чат; chat_open один раз на сессию; rfd_ym_uid и rfd_yclid уходят в заявку', async () => {
+    const ym = vi.fn();
+    (window as unknown as { ym: unknown }).ym = ym;
+    config = { ...config, metrikaCounterId: 22246774 };
+    document.cookie = 'rfd_ym_uid=17000001; path=/';
+    document.cookie = 'rfd_yclid=ycl-123; path=/';
+    document.cookie = '_ym_uid=99; path=/';
+    try {
+      load();
+      const api = (window as unknown as { RfMessenger: { ready: boolean; open(): void; close(): void; toggle(): void } }).RfMessenger;
+      expect(api.ready).toBe(false); // до ответа config
+      await flush();
+      expect(api.ready).toBe(true);
+      api.open();
+      expect(shadow().querySelector('.win')).not.toBeNull();
+      expect(shadow().querySelector('.sheet')).toBeNull();
+      api.close();
+      expect(shadow().querySelector('.win')).toBeNull();
+      api.toggle();
+      expect(shadow().querySelector('.win')).not.toBeNull();
+      api.toggle();
+      expect(shadow().querySelector('.win')).toBeNull();
+      // Кнопка в любом месте страницы — ссылка не переходит.
+      document.body.insertAdjacentHTML('beforeend', '<a id="btn" href="/contacts/" data-action="open-rf-messenger"><span>Онлайн-чат</span></a>');
+      const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+      document.querySelector('#btn span')!.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(true);
+      expect(shadow().querySelector('.win')).not.toBeNull();
+      // chat_open — один раз на сессию вкладки (три открытия → одна цель), в счётчик 22246774.
+      expect(ym.mock.calls.filter((c) => c[2] === 'chat_open').map((c) => c[0])).toEqual([22246774]);
+      expect(ym.mock.calls.filter((c) => c[2] === 'rfd_chat_open')).toHaveLength(1);
+      // Форма: ClientID из cookie сайта (не _ym_uid Метрики) и yclid.
+      const form = shadow().querySelector('form')!;
+      const field = (n: string) => form.querySelector<HTMLInputElement>(`[name=${n}]`)!;
+      type(field('name'), 'Анна');
+      type(field('email'), 'anna@example.com');
+      type(field('phone'), '89261234567');
+      type(form.querySelector<HTMLTextAreaElement>('[name=message]')!, 'хочу дверь');
+      field('consent').checked = true;
+      field('consent').dispatchEvent(new Event('change', { bubbles: true }));
+      form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+      await flush();
+      const sess = calls.find((c) => c.url.endsWith('/site-chat/v1/session'))!;
+      expect(sess.body).toMatchObject({ ym_uid: '17000001', yclid: 'ycl-123' });
+    } finally {
+      delete (window as unknown as { ym?: unknown }).ym;
+      document.getElementById('btn')?.remove();
+      for (const n of ['rfd_ym_uid', 'rfd_yclid', '_ym_uid']) document.cookie = `${n}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+    }
+  });
+
+  it('вызов open() и клик по кнопке до загрузки окна не теряются: очередь заглушки выполняется после загрузки; без cookie поля не передаются', async () => {
+    (window as unknown as { RfMessenger: unknown }).RfMessenger = { ready: false, _q: ['open'] };
+    load();
+    await flush();
+    expect(shadow().querySelector('.win')).not.toBeNull();
+    const api = (window as unknown as { RfMessenger: { ready: boolean } }).RfMessenger;
+    expect(api.ready).toBe(true);
+    // Выключенный чат: ready остаётся false, вызовы копятся, окно не рисуется.
+    config = { ...config, enabled: false };
+    load();
+    await flush();
+    const off = (window as unknown as { RfMessenger: { ready: boolean; open(): void; _q: string[] } }).RfMessenger;
+    off.open();
+    expect(off.ready).toBe(false);
+    expect(off._q).toEqual(['open']);
+    expect(document.getElementById('rfd-site-chat')).toBeNull();
+  });
+
+  it('вставка-заглушка для шаблона: клик до скрипта ставится в очередь; нет окна за 5 с — запасные ссылки', async () => {
+    vi.useFakeTimers();
+    try {
+      delete (window as unknown as { RfMessenger?: unknown }).RfMessenger;
+      const { LOADER_SNIPPET } = await import('../../api/src/site-chat/loader.ts');
+      document.body.innerHTML = '<div><a href="/x" data-action="open-rf-messenger">Онлайн-чат</a><div class="rfd-chat-fallback" hidden><a href="https://wa.me/74955324941">WhatsApp</a></div></div>';
+      new Function(LOADER_SNIPPET)();
+      const api = (window as unknown as { RfMessenger: { ready: boolean; _q: string[] } }).RfMessenger;
+      expect(api.ready).toBe(false);
+      const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+      document.querySelector('[data-action]')!.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(true);
+      expect(api._q).toEqual(['open']);
+      expect(document.querySelector<HTMLElement>('.rfd-chat-fallback')!.hidden).toBe(true);
+      vi.advanceTimersByTime(5100);
+      expect(document.querySelector<HTMLElement>('.rfd-chat-fallback')!.hidden).toBe(false);
+      expect(document.querySelector('[data-action]')!.getAttribute('data-rfd-fallback')).toBe('1');
+      // Скрипт окна подхватывает очередь заглушки (проверено в тесте выше через _q).
+    } finally {
+      vi.useRealTimers();
+      delete (window as unknown as { RfMessenger?: unknown }).RfMessenger;
+    }
+  });
+});

@@ -74,7 +74,7 @@ function deps(api: SiteSyncApi, now?: Date): SiteSyncDeps {
 }
 
 async function session(phone: string, text: string, state: 'active' | 'spam' = 'active') {
-  const sess = await repo.create({ accountId: ACC, name: 'Павел', phone, email: 'p@example.com', consentAt: NOW, pageUrl: 'https://www.rf-dveri.ru/catalog/', pageTitle: 'Каталог', referrer: 'https://yandex.ru/', utm: { utm_source: 'yandex' }, ymUid: '555', ip: '1.2.3.4', state });
+  const sess = await repo.create({ accountId: ACC, name: 'Павел', phone, email: 'p@example.com', consentAt: NOW, pageUrl: 'https://www.rf-dveri.ru/catalog/', pageTitle: 'Каталог', referrer: 'https://yandex.ru/', utm: { utm_source: 'yandex' }, ymUid: '555', yclid: 'ycl-9', ip: '1.2.3.4', state });
   const first = await repo.addMessage(sess.id, 'client', text);
   return { sess, first };
 }
@@ -92,6 +92,7 @@ describe('тексты', () => {
     expect(note).toContain('Страница: https://www.rf-dveri.ru/catalog/ («Каталог»)');
     expect(note).toContain('UTM: utm_source=yandex');
     expect(note).toContain('ClientID Метрики: 555');
+    expect(note).toContain('yclid Директа: ycl-9');
   });
 
   it('группировка примечаний: пары «вопрос → ответ», хвост без ответа — только после паузы или закрытия', () => {

@@ -1,3 +1,4 @@
+import { LOADER_SNIPPET } from '../site-chat/loader.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -202,6 +203,9 @@ export function demoPage(base: string): string {
 <body><h1>Демо-страница чата rf-dveri.ru</h1>
 <p>Так окно выглядит на сайте. Нажмите оранжевый ярлык справа или подождите всплывания. Сообщения уходят в amoCRM так же, как с настоящего сайта.</p>
 <p>Строка для шаблона UMI: <code>&lt;script src="${base}/site-chat/widget.js" async&gt;&lt;/script&gt;</code></p>
+<p>Кнопка на странице (любой элемент с <code>data-action="open-rf-messenger"</code>): <button type="button" data-action="open-rf-messenger">Онлайн-чат</button>
+ · в консоли: <code>RfMessenger.open()</code>, <code>RfMessenger.close()</code>, <code>RfMessenger.toggle()</code>, <code>RfMessenger.ready</code></p>
 <p>Проверка: <a href="${base}/site-chat/v1/health">/site-chat/v1/health</a> · <a href="${base}/site-chat/v1/config">/site-chat/v1/config</a></p>
+<script>${LOADER_SNIPPET}</script>
 <script src="${base}/site-chat/widget.js" async></script></body></html>`;
 }
