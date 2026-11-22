@@ -62,7 +62,7 @@ export function SiteChatSettings({ api, value, onChange }: { api: WidgetApi; val
         </div>
       </Field>
 
-      <Field label="Связаться с нами (телефон)" hint="Шторка на телефоне по макету сайта: онлайн-чат и ссылки на мессенджеры. Пустая ссылка — строки нет. Только https://wa.me/…, https://t.me/…, https://max.ru/…">
+      <Field label="Связаться с нами (телефон)" hint="Шторка на телефоне по макету сайта: онлайн-чат и ссылки на мессенджеры. Пустая ссылка — строки нет. Только https://wa.me/…, https://t.me/…, https://max.ru/…. Без хвоста ?text=… — иначе в WhatsApp откроется заранее подставленное сообщение.">
         <div style={s.col}>
           <input style={s.input} placeholder="WhatsApp: https://wa.me/74955324941" value={value.contacts.whatsapp} onChange={(e) => onChange({ contacts: { ...value.contacts, whatsapp: e.target.value.trim() } })} />
           <input style={s.input} placeholder="Telegram: https://t.me/…" value={value.contacts.telegram} onChange={(e) => onChange({ contacts: { ...value.contacts, telegram: e.target.value.trim() } })} />
