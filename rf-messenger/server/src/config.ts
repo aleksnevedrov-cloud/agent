@@ -61,6 +61,13 @@ export const envSchema = z.object({
   /** Запасной прокси: включается после 3 неудачных проверок основного подряд, обратно — после 3 удачных. Пусто — без запасного. */
   MESSENGER_PROXY_URL_FALLBACK: proxyUrl,
 
+  /**
+   * RFD-MESSENGER (22.11.2026, п. 2.4): поле контакта amoCRM, где Wazzup хранил id собеседника MAX (например «MaxId_WZ»).
+   * Если номер у чата MAX не получен, контакт ищется по этому полю с точным совпадением chatId. Пусто — поиск выключен;
+   * включать только после диагностики п. 2.3 (совпадает ли chatId GREEN-API с тем, что писал Wazzup).
+   */
+  MAX_ID_FIELD: z.string().trim().max(100).default(''),
+
   /** Telegram личный (MTProto): api_id и api_hash приложения с my.telegram.org. Пусто — канал недоступен. */
   TELEGRAM_API_ID: z.coerce.number().int().min(0).default(0),
   TELEGRAM_API_HASH: z.string().trim().regex(/^([0-9a-f]{32})?$/, 'должен быть 32 hex-символа').default(''),

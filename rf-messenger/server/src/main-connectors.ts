@@ -65,6 +65,7 @@ const bridge = new Bridge({
   typingMs: env.OUTBOUND_TYPING_MS,
   rest: core.rest,
   events: new RedisChatEvents(core.redis),
+  maxIdField: env.MAX_ID_FIELD,
 });
 const waQrKey = (id: number) => qrKey('whatsapp', id);
 const sessionOf = (id: number) => ({

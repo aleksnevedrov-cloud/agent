@@ -579,6 +579,11 @@ export class Store {
     return r.rows[0] ? chatRow(r.rows[0]) : null;
   }
 
+  /** Дописать поля собеседника (номер, полученный запросом к мессенджеру); прежние поля остаются. */
+  async mergeChatContact(chatId: number, contact: Chat['contact']): Promise<void> {
+    await this.db.query('UPDATE chats SET contact = contact || $2::jsonb WHERE id = $1', [chatId, JSON.stringify(contact)]);
+  }
+
   async setAmojoChatId(chatId: number, amojoChatId: string): Promise<void> {
     await this.db.query('UPDATE chats SET amojo_chat_id = $2 WHERE id = $1 AND amojo_chat_id IS DISTINCT FROM $2', [chatId, amojoChatId]);
   }

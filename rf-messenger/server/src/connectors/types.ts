@@ -70,6 +70,11 @@ export interface Connector {
    * null — номер не зарегистрирован в мессенджере или скрыт настройками приватности.
    */
   resolvePhone?(phone: string): Promise<{ externalChatId: string; title?: string } | null>;
+  /**
+   * Номер собеседника личного чата, если мессенджер его отдаёт по запросу (MAX по номеру: GREEN-API getContactInfo).
+   * null — номера нет (скрыт или не известен). Ошибка или таймаут — исключение, вызывающий решает, что делать.
+   */
+  lookupPhone?(externalChatId: string): Promise<string | null>;
   /** Канал удалён: отвязать сессию у мессенджера (WhatsApp — «Связанные устройства»). */
   logout?(): Promise<void>;
   /**

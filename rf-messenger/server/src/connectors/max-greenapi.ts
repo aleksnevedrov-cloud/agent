@@ -98,6 +98,14 @@ export class GreenApi {
   getChatHistory(chatId: string, count: number): Promise<unknown[]> {
     return this.call('getChatHistory', { chatId, count }, { timeoutMs: 60_000 });
   }
+  /** Карточка собеседника (API MAX GREEN-API): phoneNumber есть не у всех — зависит от приватности в MAX. */
+  getContactInfo(chatId: string, timeoutMs = 5000): Promise<{ phoneNumber?: string | number; name?: string; chatId?: string }> {
+    return this.call('getContactInfo', { chatId }, { timeoutMs, retries: 0 });
+  }
+  /** Список чатов инстанса: id, name, phoneNumber (если известен). */
+  getChats(timeoutMs = 5000): Promise<{ id?: string; chatId?: string; name?: string; phoneNumber?: string | number }[]> {
+    return this.call('getChats', undefined, { get: true, timeoutMs, retries: 0 });
+  }
   sendTyping(chatId: string): Promise<unknown> {
     return this.call('sendTyping', { chatId, typingTime: 3000 }, { timeoutMs: 10_000 });
   }
@@ -524,6 +532,28 @@ export class MaxGreenApiConnector implements Connector {
       out.push(ev);
     }
     return out.sort((a, b) => a.timestamp - b.timestamp).slice(-limit);
+  }
+
+  /**
+   * Номер собеседника, когда в вебхуке его нет (RFD-MESSENGER, 22.11.2026): getContactInfo по chatId,
+   * при неудаче или пустом номере — getChats. 0 и пусто — номера нет (null). Каждый запрос — до 5 с, без повторов.
+   */
+  async lookupPhone(externalChatId: string): Promise<string | null> {
+    let firstError: Error | null = null;
+    try {
+      const info = await this.api.getContactInfo(externalChatId);
+      const phone = phoneOf(info?.phoneNumber);
+      if (phone) return phone;
+    } catch (err) {
+      firstError = err as Error;
+    }
+    try {
+      const chats = await this.api.getChats();
+      const row = (Array.isArray(chats) ? chats : []).find((c) => String(c.id ?? c.chatId ?? '') === externalChatId);
+      return phoneOf(row?.phoneNumber) ?? null;
+    } catch (err) {
+      throw firstError ?? err;
+    }
   }
 
   /** «Написать первым»: checkAccount по номеру → chatId. null — на номере нет MAX. */

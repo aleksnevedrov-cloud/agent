@@ -39,6 +39,10 @@ export interface BridgeDeps {
   /** Поиск контакта по номеру: таймаут (5 с) и срок кэша (10 мин). */
   contactLookupTimeoutMs?: number;
   contactCacheTtlMs?: number;
+  /** MAX без номера в вебхуке: запрос номера у мессенджера не чаще раза в 10 минут на чат (ТЗ 22.11, п. 2.2). */
+  phoneLookupRetryMs?: number;
+  /** Поле контакта amoCRM с id собеседника MAX от Wazzup («MaxId_WZ»); пусто — поиск по полю выключен (п. 2.4). */
+  maxIdField?: string;
   now?: () => number;
   /** Вся отправка одного сообщения в мессенджер (по умолчанию 20 с, п. 4.3). */
   sendTimeoutMs?: number;
@@ -144,11 +148,88 @@ export class Bridge {
    * Новый чат без привязки в amoCRM: до первого сообщения ищем контакт по номеру собеседника и привязываем чат к нему,
    * чтобы amo не завёл дубль контакта и заявку в неразобранном. Возвращает, что сделано (для журнала и тестов).
    */
+  /** Последний запрос номера у мессенджера по чату (мс) — повтор не чаще phoneLookupRetryMs. */
+  private readonly phoneLookupAt = new Map<number, number>();
+
+  /**
+   * RFD-MESSENGER (22.11.2026): личный чат MAX по номеру без номера в вебхуке и без привязки — до первого сообщения
+   * в amo спросить номер у GREEN-API (getContactInfo → getChats). Номер есть → в chats.contact.phone, дальше обычная
+   * привязка по номеру. Ошибка или таймаут — сообщение не теряется, в журнал предупреждение; повтор по чату не чаще
+   * раза в 10 минут. Группы, чаты с привязкой («Написать») и другие каналы — без изменений.
+   */
+  async resolveUnknownPhone(chat: Chat): Promise<'skipped' | 'found' | 'none' | 'failed'> {
+    if (chat.amojoChatId || chat.isGroup || chat.contact.phone) return 'skipped';
+    const channel = await this.d.store.channelById(chat.channelId);
+    if (!channel || channel.kind !== 'max_phone') return 'skipped';
+    const connector = this.d.connector(chat.channelId);
+    if (!connector?.lookupPhone) return 'skipped';
+    const now = (this.d.now ?? Date.now)();
+    const last = this.phoneLookupAt.get(chat.id);
+    if (last !== undefined && now - last < (this.d.phoneLookupRetryMs ?? 600_000)) return 'skipped';
+    this.phoneLookupAt.set(chat.id, now);
+    let phone: string | null;
+    try {
+      phone = await withTimeout(connector.lookupPhone(chat.externalChatId), this.d.contactLookupTimeoutMs ?? 5000, 'запрос номера у мессенджера');
+    } catch (err) {
+      this.d.log.warn({ chatId: chat.id, channel: channel.kind, err: (err as Error).message }, 'номер собеседника MAX не получен — сообщение уйдёт без привязки');
+      return 'failed';
+    }
+    if (!phone) {
+      this.d.log.info({ chatId: chat.id, channel: channel.kind, result: 'номера нет' }, 'номер собеседника MAX: мессенджер номер не отдал');
+      return 'none';
+    }
+    chat.contact = { ...chat.contact, phone };
+    await this.d.store.mergeChatContact(chat.id, { phone });
+    this.d.log.info({ chatId: chat.id, channel: channel.kind, result: 'номер получен', phone: phoneTail4(phone) }, 'номер собеседника MAX получен у GREEN-API');
+    return 'found';
+  }
+
+  /**
+   * П. 2.4: номера нет → контакт по полю Wazzup с id собеседника (точное совпадение с chatId). Только для MAX по номеру
+   * и только если поле задано (MAX_ID_FIELD) — после диагностики п. 2.3.
+   */
+  private async linkNewChatByMaxId(chat: Chat, conn: { scopeId: string }): Promise<'skipped' | 'none' | 'linked' | 'failed'> {
+    const field = this.d.maxIdField;
+    if (!field || chat.amojoChatId || chat.isGroup || chat.contact.phone || !this.d.rest || !this.d.amojo) return 'skipped';
+    const channel = await this.d.store.channelById(chat.channelId);
+    if (!channel || channel.kind !== 'max_phone') return 'skipped';
+    let choice: ReturnType<typeof chooseContact>;
+    try {
+      const candidates = await withTimeout(this.d.rest.contactsByField(chat.accountId, field, chat.externalChatId), this.d.contactLookupTimeoutMs ?? 5000, `поиск контакта по полю ${field}`);
+      choice = chooseContact(candidates);
+    } catch (err) {
+      this.d.log.warn({ chatId: chat.id, channel: channel.kind, field, err: (err as Error).message }, 'поиск контакта по полю не выполнен — сообщение уйдёт без привязки');
+      return 'failed';
+    }
+    if (!choice) {
+      this.d.log.info({ chatId: chat.id, channel: channel.kind, field, result: 'не найден' }, 'контакт по полю с id собеседника MAX не найден');
+      return 'none';
+    }
+    return this.attachChatToContact(chat, conn, choice.contact.id, `найден по ${field}: ${choice.reason}`, { field });
+  }
+
+  /** Чат API чатов amo → привязка к контакту; ошибка (в т. ч. 409 «уже привязан») — в журнал, сообщение уйдёт как есть. */
+  private async attachChatToContact(chat: Chat, conn: { scopeId: string }, contactId: number, reason: string, extra: Record<string, unknown>): Promise<'linked' | 'failed'> {
+    if (!this.d.amojo || !this.d.rest) return 'failed';
+    try {
+      const { chatId: amojoChatId } = await this.d.amojo.createChat(conn.scopeId, chat.conversationId, this.clientUser(chat));
+      await this.d.store.setAmojoChatId(chat.id, amojoChatId);
+      chat.amojoChatId = amojoChatId;
+      await this.d.rest.linkChat(chat.accountId, amojoChatId, contactId);
+      this.d.log.info({ chatId: chat.id, contactId, reason, ...extra }, 'чат привязан к контакту amoCRM');
+      return 'linked';
+    } catch (err) {
+      this.d.log.warn({ chatId: chat.id, contactId, err: (err as Error).message, status: err instanceof AmoRestError ? err.status : undefined, ...extra }, 'привязка чата к контакту не выполнена — сообщение уйдёт без привязки');
+      return 'failed';
+    }
+  }
+
   async linkNewChatToContact(chat: Chat, conn: { scopeId: string }): Promise<'skipped' | 'none' | 'linked' | 'failed'> {
     if (chat.amojoChatId || chat.isGroup) return 'skipped';
     const phone = chat.contact.phone;
     const tail = phone ? phoneTail(phone) : null;
-    if (!phone || !tail || !this.d.rest || !this.d.amojo) return 'skipped';
+    if (!phone || !tail) return this.linkNewChatByMaxId(chat, conn);
+    if (!this.d.rest || !this.d.amojo) return 'skipped';
     const now = (this.d.now ?? Date.now)();
     const key = `${chat.accountId}:${tail}`;
     const cached = this.contactCache.get(key);
@@ -505,7 +586,8 @@ export class Bridge {
     if (!chat) return;
     const conn = await this.d.store.getConnection(chat.accountId);
     if (!conn || !this.d.amojo) throw new Error('Канал чатов amoCRM не подключён к аккаунту');
-    // Новый чат: сначала привязка к существующему контакту по номеру (если найдётся), потом сообщение.
+    // Новый чат: номер неизвестен (MAX) → спросить у мессенджера; затем привязка к контакту по номеру, потом сообщение.
+    await this.resolveUnknownPhone(chat);
     await this.linkNewChatToContact(chat, conn);
     // Сообщение с телефона менеджера — исходящее: отправитель — сотрудник amoCRM (ref_id), получатель — клиент.
     // amo принимает исходящее, только если отправитель — его пользователь: без ref_id ответ 400

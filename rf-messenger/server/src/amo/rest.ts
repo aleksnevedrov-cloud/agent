@@ -319,6 +319,45 @@ export class AmoRest {
     }));
   }
 
+  /**
+   * Контакты, у которых текстовое поле `fieldName` (например «MaxId_WZ» из Wazzup) точно равно `value`:
+   * GET /contacts?query=<value>&with=leads, затем точное сравнение (query нечёткий). Сделки — как в contactsByPhone.
+   */
+  async contactsByField(accountId: number, fieldName: string, value: string): Promise<ContactCandidate[]> {
+    const want = value.trim();
+    if (!want || !fieldName) return [];
+    const r = await this.request<{
+      _embedded?: {
+        contacts?: {
+          id: number;
+          name?: string;
+          updated_at?: number;
+          custom_fields_values?: { field_code?: string; field_name?: string; values?: { value?: unknown }[] }[] | null;
+          _embedded?: { leads?: { id: number }[] };
+        }[];
+      };
+    }>(accountId, 'GET', `/api/v4/contacts?query=${encodeURIComponent(want)}&with=leads&limit=50`);
+    const matched = (r._embedded?.contacts ?? []).filter((c) => (c.custom_fields_values ?? []).some((f) => (f.field_name === fieldName || f.field_code === fieldName) && (f.values ?? []).some((v) => String(v.value ?? '').trim() === want)));
+    const leads = await this.leadsOf(accountId, [...new Set(matched.flatMap((c) => (c._embedded?.leads ?? []).map((l) => l.id)))]);
+    return matched.map((c) => ({
+      id: c.id,
+      name: c.name ?? '',
+      phones: (c.custom_fields_values ?? []).filter((f) => f.field_code === 'PHONE').flatMap((f) => f.values ?? []).map((v) => String(v.value ?? '')),
+      updatedAt: Number(c.updated_at ?? 0),
+      leads: (c._embedded?.leads ?? []).map((l) => leads.get(l.id)).filter((l): l is { id: number; statusId: number; updatedAt: number } => Boolean(l)),
+    }));
+  }
+
+  /** Сделки по id одним запросом: статус и updated_at (до 50). */
+  private async leadsOf(accountId: number, leadIds: number[]): Promise<Map<number, { id: number; statusId: number; updatedAt: number }>> {
+    const leads = new Map<number, { id: number; statusId: number; updatedAt: number }>();
+    const ids = leadIds.slice(0, 50);
+    if (!ids.length) return leads;
+    const lr = await this.request<{ _embedded?: { leads?: { id: number; status_id?: number; updated_at?: number }[] } }>(accountId, 'GET', `/api/v4/leads?${ids.map((id) => `filter[id][]=${id}`).join('&')}&limit=50`);
+    for (const l of lr._embedded?.leads ?? []) leads.set(l.id, { id: l.id, statusId: Number(l.status_id ?? 0), updatedAt: Number(l.updated_at ?? 0) });
+    return leads;
+  }
+
   /** Открыта ли сделка по статусу (142 — успешно, 143 — закрыто). */
   static isOpenLead(statusId: number): boolean {
     return !LEAD_CLOSED_STATUSES.has(statusId);
