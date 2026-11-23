@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AmoRestError } from '../amo/rest.ts';
 import type { Principal } from '../auth.ts';
-import type { WindowSendInput } from '../bridge.ts';
+import { StartChatError, type WindowSendInput } from '../bridge.ts';
 import { CHAT_START_KINDS, KIND_TEXT, PHONE_START_KINDS } from '../channels.ts';
 import { normalizePhone } from '../connectors/types.ts';
 import type { ChatEvent } from '../events.ts';
@@ -301,6 +301,28 @@ export async function chatRoutes(app: FastifyInstance, deps: ChatRouteDeps): Pro
         if (!deps.queue) return reply.code(503).send({ error: 'Очередь недоступна' });
         await deps.queue.add('history', { messageId: 0, chatId: chat.id }, { jobId: `history-${chat.id}-${Date.now()}` });
         return { queued: true };
+      });
+
+      // «Перенести в сделку»: чат-дубль → к основному контакту указанной сделки (RFD-MESSENGER 23.11).
+      w.post<{ Params: { id: string }; Body: { leadId?: unknown } }>('/chats/:id/move', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
+        const p = who(req);
+        const chat = await chatFor(p, req.params.id, reply);
+        if (!chat) return;
+        const leadId = Number(String((req.body as { leadId?: unknown } | undefined)?.leadId ?? '').replace(/\D/g, ''));
+        if (!Number.isInteger(leadId) || leadId <= 0 || leadId > 1e12) return reply.code(400).send({ error: 'Укажите номер сделки' });
+        const rest = restOr503(reply);
+        if (!rest) return;
+        try {
+          const lead = await rest.lead(p.accountId, leadId);
+          if (!p.isAdmin && lead.responsibleUserId !== p.userId) return reply.code(403).send({ error: 'Перенести можно только в свою сделку (или администратору)' });
+          const r = await deps.bridge.moveChatToLead({ accountId: p.accountId, chatId: chat.id, leadId });
+          req.log.info({ chatId: chat.id, leadId, contactId: r.contactId }, 'чат перенесён в сделку');
+          return { ok: true, leadId, contactId: r.contactId, contactName: r.contactName, marked: r.marked };
+        } catch (err) {
+          if (err instanceof StartChatError) return reply.code(422).send({ error: err.message });
+          if (err instanceof AmoRestError) return reply.code(err.status === 404 ? 404 : err.status === 409 ? 409 : 502).send({ error: err.status === 404 ? `Сделка ${leadId} не найдена` : err.message });
+          throw err;
+        }
       });
 
       w.post<{ Params: { id: string } }>('/messages/:id/retry', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {

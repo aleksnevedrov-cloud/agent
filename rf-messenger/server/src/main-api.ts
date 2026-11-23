@@ -28,6 +28,7 @@ const bridge = new Bridge({
   log: { info: () => undefined, warn: () => undefined, error: () => undefined },
   rest: core.rest,
   events: new RedisChatEvents(core.redis),
+  maxIdField: env.MAX_ID_FIELD,
 });
 // Время запуска — для уведомления о перезапуске (его шлёт процесс connectors).
 await core.redis.set('rfm:boot:api', String(Date.now())).catch(() => undefined);

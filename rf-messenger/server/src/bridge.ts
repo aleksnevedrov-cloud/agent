@@ -217,11 +217,56 @@ export class Bridge {
       chat.amojoChatId = amojoChatId;
       await this.d.rest.linkChat(chat.accountId, amojoChatId, contactId);
       this.d.log.info({ chatId: chat.id, contactId, reason, ...extra }, 'чат привязан к контакту amoCRM');
+      await this.markMaxContact(chat, contactId);
       return 'linked';
     } catch (err) {
       this.d.log.warn({ chatId: chat.id, contactId, err: (err as Error).message, status: err instanceof AmoRestError ? err.status : undefined, ...extra }, 'привязка чата к контакту не выполнена — сообщение уйдёт без привязки');
       return 'failed';
     }
+  }
+
+  /**
+   * RFD-MESSENGER 23.11: чат MAX по номеру привязан к контакту → id собеседника MAX записать в поле контакта
+   * (MAX_ID_FIELD, то же «MaxId_WZ», что у Wazzup). Тогда клиент со скрытым номером найдётся по полю и в будущем.
+   * Только личные чаты MAX по номеру; ошибка не мешает переписке — в журнал.
+   */
+  async markMaxContact(chat: Chat, contactId: number): Promise<'set' | 'same' | 'nofield' | 'skipped' | 'failed'> {
+    const field = this.d.maxIdField;
+    if (!field || chat.isGroup || !this.d.rest || !/^\d+$/.test(chat.externalChatId)) return 'skipped';
+    const channel = await this.d.store.channelById(chat.channelId);
+    if (!channel || channel.kind !== 'max_phone') return 'skipped';
+    try {
+      const r = await this.d.rest.setContactField(chat.accountId, contactId, field, chat.externalChatId);
+      if (r === 'set') this.d.log.info({ chatId: chat.id, contactId, field }, 'контакт помечен id собеседника MAX');
+      if (r === 'nofield') this.d.log.warn({ field }, 'поля для id собеседника MAX нет в контактах amoCRM');
+      return r;
+    } catch (err) {
+      this.d.log.warn({ chatId: chat.id, contactId, field, err: (err as Error).message }, 'контакт не помечен id собеседника MAX');
+      return 'failed';
+    }
+  }
+
+  /**
+   * Окно переписки, «Перенести в сделку»: чат (обычно дубль из неразобранного) — к основному контакту указанной сделки.
+   * Дальше переписка идёт в эту сделку; клиент MAX помечается id собеседника. Дубль-сделку менеджер закрывает сам.
+   */
+  async moveChatToLead(input: { accountId: number; chatId: number; leadId: number }): Promise<{ contactId: number; contactName: string; marked: boolean }> {
+    const chat = await this.d.store.chatById(input.chatId);
+    if (!chat || chat.accountId !== input.accountId) throw new StartChatError('Чат не найден');
+    if (chat.isGroup) throw new StartChatError('Групповой чат нельзя перенести в сделку');
+    if (!this.d.rest || !this.d.amojo) throw new StartChatError('Нет доступа к amoCRM: интеграция не авторизована');
+    const conn = await this.d.store.getConnection(input.accountId);
+    if (!conn) throw new StartChatError('Канал чатов amoCRM не подключён к аккаунту');
+    const contacts = await this.d.rest.leadContacts(input.accountId, input.leadId);
+    const contact = contacts[0];
+    if (!contact) throw new StartChatError(`У сделки ${input.leadId} нет контакта — добавьте контакт в сделку`);
+    const { chatId: amojoChatId } = await this.d.amojo.createChat(conn.scopeId, chat.conversationId, this.clientUser(chat));
+    if (chat.amojoChatId !== amojoChatId) await this.d.store.setAmojoChatId(chat.id, amojoChatId);
+    chat.amojoChatId = amojoChatId;
+    await this.d.rest.relinkChat(input.accountId, amojoChatId, contact.id);
+    this.d.log.info({ chatId: chat.id, contactId: contact.id, leadId: input.leadId }, 'чат перенесён к контакту сделки вручную');
+    const marked = (await this.markMaxContact(chat, contact.id)) !== 'failed';
+    return { contactId: contact.id, contactName: contact.name, marked };
   }
 
   async linkNewChatToContact(chat: Chat, conn: { scopeId: string }): Promise<'skipped' | 'none' | 'linked' | 'failed'> {
@@ -256,6 +301,7 @@ export class Bridge {
       chat.amojoChatId = amojoChatId;
       await this.d.rest.linkChat(chat.accountId, amojoChatId, contactId);
       this.d.log.info({ chatId: chat.id, contactId, phone: phoneTail4(phone), reason }, 'чат привязан к контакту amoCRM по номеру');
+      await this.markMaxContact(chat, contactId);
       return 'linked';
     } catch (err) {
       // 409 — чат уже привязан к другому контакту в amo: оставляем как есть.
@@ -662,6 +708,7 @@ export class Bridge {
     const { chatId: amojoChatId } = await this.d.amojo.createChat(conn.scopeId, chat.conversationId, this.clientUser(chat));
     await this.d.store.setAmojoChatId(chat.id, amojoChatId);
     await this.d.rest.linkChat(input.accountId, amojoChatId, input.contactId);
+    await this.markMaxContact(chat, input.contactId);
     const ref = await this.d.rest.userAmojoId(input.accountId, input.userId);
     if (ref) await this.d.store.rememberAmoOperator(input.accountId, chat.id, ref);
 

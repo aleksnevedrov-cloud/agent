@@ -265,3 +265,94 @@ describe('GREEN-API: lookupPhone и REST contactsByField', () => {
     expect(await rest.contactsByField(ACCOUNT, '', CHAT_ID)).toEqual([]);
   });
 });
+
+describe('RFD-MESSENGER 23.11: пометка контакта id собеседника MAX и перенос чата в сделку', () => {
+  const restWithMark = (calls: string[], over: Record<string, unknown> = {}) =>
+    ({
+      ...(restStub([cand({ id: 65167009 })], [], calls) as unknown as Record<string, unknown>),
+      setContactField: async (_a: number, contactId: number, field: string, value: string) => {
+        calls.push(`mark:${contactId}:${field}=${value}`);
+        return 'set';
+      },
+      leadContacts: async (_a: number, leadId: number) => (leadId === 777 ? [{ id: 555, name: 'Старый клиент', phones: [] }] : []),
+      relinkChat: async (_a: number, _chat: string, contactId: number) => void calls.push(`relink:${contactId}`),
+      ...over,
+    }) as unknown as AmoRestType;
+
+  it('привязка по номеру → контакт помечается id собеседника MAX (поле MAX_ID_FIELD)', async () => {
+    const calls: string[] = [];
+    conn.phoneByChat.set(CHAT_ID, PHONE);
+    const bridge = bridgeWith(restWithMark(calls), { maxIdField: 'MaxId_WZ' });
+    await inbound(bridge, 'm1');
+    await bridge.deliverToAmo(lastJob());
+    expect(calls).toEqual([`phone:${PHONE}`, 'link:65167009', `mark:65167009:MaxId_WZ=${CHAT_ID}`]);
+    expect(lines.some((l) => l.msg === 'контакт помечен id собеседника MAX')).toBe(true);
+  });
+
+  it('без MAX_ID_FIELD, для групп и не-MAX каналов — пометки нет; ошибка пометки не мешает переписке', async () => {
+    const calls: string[] = [];
+    conn.phoneByChat.set(CHAT_ID, PHONE);
+    await inbound(bridgeWith(restWithMark(calls)), 'm1');
+    await bridgeWith(restWithMark(calls)).deliverToAmo(lastJob());
+    expect(calls.some((c) => c.startsWith('mark:'))).toBe(false);
+    // Не-MAX канал: чат Telegram/WhatsApp не помечается даже с полем.
+    const tg = (await t.store.upsertChat(t.channel, { externalChatId: '42', isGroup: false, title: 'TG', contact: {} }))!;
+    expect(await bridgeWith(restWithMark(calls), { maxIdField: 'MaxId_WZ' }).markMaxContact(tg, 1)).toBe('skipped');
+    // Ошибка amo при пометке → 'failed', в журнал предупреждение.
+    const failing = bridgeWith(restWithMark(calls, { setContactField: async () => { throw new Error('HTTP 500'); } }), { maxIdField: 'MaxId_WZ' });
+    const chat = (await t.store.chatByExternal(max.id, CHAT_ID))!;
+    expect(await failing.markMaxContact(chat, 1)).toBe('failed');
+    expect(lines.some((l) => l.level === 'warn' && l.msg === 'контакт не помечен id собеседника MAX')).toBe(true);
+  });
+
+  it('перенос в сделку: чат → к основному контакту сделки (relinkChat), контакт помечается; сделка без контакта — понятная ошибка', async () => {
+    const calls: string[] = [];
+    conn.phoneByChat.set(CHAT_ID, null);
+    const bridge = bridgeWith(restWithMark(calls), { maxIdField: 'MaxId_WZ' });
+    await inbound(bridge, 'm1');
+    await bridge.deliverToAmo(lastJob()); // дубль: ушло без привязки
+    const chat = (await t.store.chatByExternal(max.id, CHAT_ID))!;
+    const r = await bridge.moveChatToLead({ accountId: ACCOUNT, chatId: chat.id, leadId: 777 });
+    expect(r).toEqual({ contactId: 555, contactName: 'Старый клиент', marked: true });
+    expect(calls.slice(-2)).toEqual(['relink:555', `mark:555:MaxId_WZ=${CHAT_ID}`]);
+    expect((await t.store.chatById(chat.id))?.amojoChatId).toBeTruthy();
+    await expect(bridge.moveChatToLead({ accountId: ACCOUNT, chatId: chat.id, leadId: 1 })).rejects.toThrow('нет контакта');
+    await expect(bridge.moveChatToLead({ accountId: ACCOUNT + 1, chatId: chat.id, leadId: 777 })).rejects.toThrow('Чат не найден');
+  });
+
+  it('AmoRest: setContactField пишет только новое значение; relinkChat проверяет результат и при отказе amo — 409 с подсказкой', async () => {
+    const urls: string[] = [];
+    let linkedTo = 1;
+    let moves = true;
+    let fieldVal = '';
+    const f = (async (input: string | URL | Request, init?: RequestInit) => {
+      const u = new URL(String(input));
+      const m = init?.method ?? 'GET';
+      urls.push(`${m} ${u.pathname}`);
+      if (u.pathname === '/api/v4/contacts/custom_fields') return new Response(JSON.stringify({ _embedded: { custom_fields: [{ id: 734691, name: 'MaxId_WZ' }] } }));
+      if (u.pathname === '/api/v4/contacts/555' && m === 'GET') return new Response(JSON.stringify({ id: 555, custom_fields_values: fieldVal ? [{ field_id: 734691, values: [{ value: fieldVal }] }] : null }));
+      if (u.pathname === '/api/v4/contacts/555' && m === 'PATCH') {
+        fieldVal = JSON.parse(String(init?.body)).custom_fields_values[0].values[0].value;
+        return new Response('{}');
+      }
+      if (u.pathname === '/api/v4/contacts/chats' && m === 'GET') return new Response(JSON.stringify({ _embedded: { chats: [{ contact_id: linkedTo }] } }));
+      if (u.pathname === '/api/v4/contacts/chats' && m === 'POST') {
+        if (moves) linkedTo = 555;
+        return new Response('{}');
+      }
+      return new Response('{}', { status: 404 });
+    }) as typeof fetch;
+    const rest = new AmoRest(t.db, t.box, { clientId: 'c', clientSecret: 's', redirectUri: 'https://x/', allowedDomains: ['amocrm.ru'], fetch: f });
+    await t.db.query("INSERT INTO amo_oauth (account_id, base_domain, access_token, refresh_token, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 day')", [ACCOUNT, 'x.amocrm.ru', t.box.encrypt('a'), t.box.encrypt('r')]);
+    expect(await rest.setContactField(ACCOUNT, 555, 'MaxId_WZ', CHAT_ID)).toBe('set');
+    expect(fieldVal).toBe(CHAT_ID);
+    expect(await rest.setContactField(ACCOUNT, 555, 'MaxId_WZ', CHAT_ID)).toBe('same');
+    expect(await rest.setContactField(ACCOUNT, 555, 'Нет такого', CHAT_ID)).toBe('nofield');
+    expect(urls.filter((x) => x.startsWith('PATCH'))).toHaveLength(1);
+    await rest.relinkChat(ACCOUNT, 'amo-chat', 555);
+    expect(linkedTo).toBe(555);
+    linkedTo = 1;
+    moves = false;
+    await expect(rest.relinkChat(ACCOUNT, 'amo-chat', 555)).rejects.toMatchObject({ status: 409 });
+  });
+});

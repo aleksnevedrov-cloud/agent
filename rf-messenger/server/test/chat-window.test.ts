@@ -5,7 +5,7 @@ import { SignJWT } from 'jose';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { AmoRest } from '../src/amo/rest.ts';
 import { buildApp } from '../src/api/app.ts';
-import { Bridge, kindOfMime } from '../src/bridge.ts';
+import { Bridge, StartChatError, kindOfMime } from '../src/bridge.ts';
 import type { HistoryCursor, InboundEvent } from '../src/connectors/types.ts';
 import type { ChatEvent } from '../src/events.ts';
 import { ACCOUNT, CLIENT_ID, CLIENT_SECRET, event, FakeConnector, setupBridge, TEST_REDIS_URL } from './helpers.ts';
@@ -128,6 +128,28 @@ async function clientChat(n = 1) {
   await t.store.setAmojoChatId(chat.id, 'amo-chat-1');
   return chat;
 }
+
+describe('окно переписки: «Перенести в другую сделку» (RFD-MESSENGER 23.11)', () => {
+  it('без токена — 401; нет номера сделки — 400; чужая сделка для менеджера — 403; ошибка переноса — 422; успех — контакт сделки', async () => {
+    const chat = await clientChat(1);
+    await app.inject({ method: 'GET', url: `/chat/v1/chats?leadId=${LEAD}`, headers: await manager() }); // права на чат
+    expect((await app.inject({ method: 'POST', url: `/chat/v1/chats/${chat.id}/move`, payload: { leadId: LEAD } })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'POST', url: `/chat/v1/chats/${chat.id}/move`, headers: await admin(), payload: {} })).statusCode).toBe(400);
+    const moved: number[] = [];
+    (bridge as unknown as { moveChatToLead: unknown }).moveChatToLead = async (i: { leadId: number }) => {
+      if (i.leadId === 999) throw new StartChatError('У сделки 999 нет контакта — добавьте контакт в сделку');
+      moved.push(i.leadId);
+      return { contactId: CONTACT, contactName: 'Иван Петров', marked: true };
+    };
+    const ok = await app.inject({ method: 'POST', url: `/chat/v1/chats/${chat.id}/move`, headers: await manager(), payload: { leadId: String(LEAD) } });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ ok: true, leadId: LEAD, contactName: 'Иван Петров' });
+    expect(moved).toEqual([LEAD]);
+    const bad = await app.inject({ method: 'POST', url: `/chat/v1/chats/${chat.id}/move`, headers: await admin(), payload: { leadId: 999 } });
+    expect(bad.statusCode).toBe(422);
+    expect(bad.json().error).toContain('нет контакта');
+  });
+});
 
 describe('окно переписки: чаты и права', () => {
   it('администратор и ответственный менеджер видят чаты сделки; другой менеджер — 403; без карточки — 400', async () => {

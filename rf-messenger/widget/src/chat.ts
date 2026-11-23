@@ -133,6 +133,10 @@ export class ChatApi {
   history(chatId: number) {
     return this.api.call<{ queued: boolean }>('POST', `/chat/v1/chats/${chatId}/history`);
   }
+  /** Перенести чат (дубль из неразобранного) к основному контакту указанной сделки. */
+  move(chatId: number, leadId: number) {
+    return this.api.call<{ ok: boolean; leadId: number; contactName: string; marked: boolean }>('POST', `/chat/v1/chats/${chatId}/move`, { leadId });
+  }
   retry(messageId: number) {
     return this.api.call<{ queued: boolean }>('POST', `/chat/v1/messages/${messageId}/retry`);
   }
@@ -820,6 +824,7 @@ export async function openChatWindow(chat: ChatApi, o: OpenOptions): Promise<() 
     pop.innerHTML = `<div class="rfm-cw-menu">
 ${current?.historyAvailable ? '<button type="button" data-cw="history">Загрузить историю из мессенджера</button>' : ''}
 <button type="button" data-cw="my-templates">Мои шаблоны</button>
+${current && !current.isGroup ? '<button type="button" data-cw="move">Перенести в другую сделку…</button>' : ''}
 <button type="button" data-cw="close">Открыть в чате amoCRM</button>
 ${current?.contact.phone ? '<button type="button" data-cw="copy">Скопировать номер</button>' : ''}
 </div>`;
@@ -1037,6 +1042,29 @@ ${current?.contact.phone ? '<button type="button" data-cw="copy">Скопиро�
         }
         box.innerHTML = '<div class="rfm-cw-search"><input type="search" placeholder="Поиск по переписке…" data-cw-q><button type="button" class="rfm-cw-btn" data-cw="do-search">Найти</button></div><div class="rfm-cw-found" data-cw-found></div>';
         box.querySelector<HTMLInputElement>('[data-cw-q]')?.focus();
+        return;
+      }
+      case 'move': {
+        // Дубль из неразобранного: переписку — к контакту нужной сделки (номер сделки вводит менеджер).
+        const box = q<HTMLElement>('[data-cw-search]');
+        closePop();
+        box.innerHTML = '<div class="rfm-cw-search"><input type="text" inputmode="numeric" placeholder="Номер сделки, куда перенести переписку" data-cw-lead><button type="button" class="rfm-cw-btn" data-cw="do-move">Перенести</button></div><div class="rfm-cw-found" data-cw-moved><div class="rfm-cw-empty">Переписка уйдёт к контакту этой сделки. Сделку-дубль после переноса закройте.</div></div>';
+        box.querySelector<HTMLInputElement>('[data-cw-lead]')?.focus();
+        return;
+      }
+      case 'do-move': {
+        const input = q<HTMLInputElement>('[data-cw-lead]');
+        const out = q<HTMLElement>('[data-cw-moved]');
+        const leadId = Number(input.value.replace(/\D/g, ''));
+        if (!current || !leadId) return void (out.innerHTML = '<div class="rfm-cw-empty">Введите номер сделки</div>');
+        out.innerHTML = '<div class="rfm-cw-empty">Переносим…</div>';
+        void chat.move(current.id, leadId).then(
+          (r) => {
+            out.innerHTML = `<div class="rfm-cw-empty">Готово: переписка перенесена к контакту «${esc(r.contactName)}» сделки ${r.leadId}. Сделку-дубль можно закрыть.</div>`;
+            toast(`Переписка перенесена в сделку ${r.leadId}`);
+          },
+          (err: Error) => void (out.innerHTML = `<div class="rfm-cw-empty">${esc(err.message)}</div>`),
+        );
         return;
       }
       case 'do-search': {

@@ -185,7 +185,7 @@ export class AmoRest {
     }
   }
 
-  private async request<T>(accountId: number, method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+  private async request<T>(accountId: number, method: 'GET' | 'POST' | 'PATCH', path: string, body?: unknown): Promise<T> {
     const t = await this.token(accountId);
     await this.limiter.acquire();
     const res = await this.f(`https://${t.baseDomain}${path}`, {
@@ -412,6 +412,50 @@ export class AmoRest {
   }
 
   /** Привязка чата API чатов к контакту — чат появляется в карточке контакта и его сделок. Уже привязанный к нему — без повтора. */
+  /** Id поля контакта по названию (или коду); кэш на процесс. */
+  private readonly contactFieldIds = new Map<string, number | null>();
+  async contactFieldId(accountId: number, fieldName: string): Promise<number | null> {
+    const key = `${accountId}:${fieldName}`;
+    if (this.contactFieldIds.has(key)) return this.contactFieldIds.get(key) ?? null;
+    let id: number | null = null;
+    for (let page = 1; page <= 5 && id === null; page++) {
+      const r = await this.request<{ _embedded?: { custom_fields?: { id: number; name?: string; code?: string | null }[] } }>(accountId, 'GET', `/api/v4/contacts/custom_fields?limit=250&page=${page}`);
+      const list = r._embedded?.custom_fields ?? [];
+      id = list.find((f) => f.name === fieldName || f.code === fieldName)?.id ?? null;
+      if (list.length < 250) break;
+    }
+    this.contactFieldIds.set(key, id);
+    return id;
+  }
+
+  /**
+   * Записать значение в текстовое поле контакта (пометка id собеседника MAX). Уже записано — без запроса на запись.
+   * 'nofield' — такого поля в аккаунте нет.
+   */
+  async setContactField(accountId: number, contactId: number, fieldName: string, value: string): Promise<'set' | 'same' | 'nofield'> {
+    const fieldId = await this.contactFieldId(accountId, fieldName);
+    if (!fieldId) return 'nofield';
+    const c = await this.request<{ custom_fields_values?: { field_id: number; values?: { value?: unknown }[] }[] | null }>(accountId, 'GET', `/api/v4/contacts/${contactId}`);
+    const cur = (c.custom_fields_values ?? []).find((f) => f.field_id === fieldId)?.values?.map((v) => String(v.value ?? '')) ?? [];
+    if (cur.includes(value)) return 'same';
+    await this.request(accountId, 'PATCH', `/api/v4/contacts/${contactId}`, { custom_fields_values: [{ field_id: fieldId, values: [{ value }] }] });
+    return 'set';
+  }
+
+  /**
+   * Перепривязать чат к другому контакту (окно переписки: «Перенести в сделку»). Отдельного метода отвязки в API нет;
+   * amo допускает повторную привязку (id связи меняется при изменении привязки), поэтому POST и затем проверка.
+   */
+  async relinkChat(accountId: number, amojoChatId: string, contactId: number): Promise<void> {
+    const q = `/api/v4/contacts/chats?chat_id[]=${encodeURIComponent(amojoChatId)}`;
+    const before = await this.request<{ _embedded?: { chats?: { contact_id: number }[] } }>(accountId, 'GET', q);
+    if ((before._embedded?.chats ?? []).some((c) => c.contact_id === contactId)) return;
+    await this.request(accountId, 'POST', '/api/v4/contacts/chats', [{ chat_id: amojoChatId, contact_id: contactId }]);
+    const after = await this.request<{ _embedded?: { chats?: { contact_id: number }[] } }>(accountId, 'GET', q);
+    if (!(after._embedded?.chats ?? []).some((c) => c.contact_id === contactId))
+      throw new AmoRestError('amoCRM не перенёс чат к контакту этой сделки. Объедините два контакта в amoCRM («Объединить» в списке контактов) — чат перейдёт вместе с ними', 409);
+  }
+
   async linkChat(accountId: number, amojoChatId: string, contactId: number): Promise<void> {
     const linked = await this.request<{ _embedded?: { chats?: { contact_id: number }[] } }>(
       accountId,
