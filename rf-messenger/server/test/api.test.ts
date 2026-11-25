@@ -294,7 +294,8 @@ describe('написать первым и OAuth', () => {
     expect((await a.inject({ method: 'GET', url: '/widget/v1/compose', headers: h })).statusCode).toBe(400);
 
     const body = { channelId: wa!.id, contactId: 1, phone: '+7 936 147-23-24', text: 'Добрый день', accountId: 999, userId: 1 };
-    const s = await a.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: { ...h, 'content-type': 'application/json' }, payload: body });
+    await redis.del('rfm:start:job-1'); // Redis общий между прогонами
+    const s = await a.inject({ method: 'POST', url: '/widget/v1/chats/start?v=2', headers: { ...h, 'content-type': 'application/json' }, payload: body });
     expect(s.statusCode).toBe(200);
     // Ответ сразу — талон; результат виджет забирает по нему (п. 4.1).
     expect(s.json()).toEqual({ ticket: 'job-1' });
@@ -306,6 +307,20 @@ describe('написать первым и OAuth', () => {
     expect((await a.inject({ method: 'GET', url: '/widget/v1/chats/start/job-1', headers: h })).statusCode).toBe(404);
     expect((await a.inject({ method: 'GET', url: '/widget/v1/chats/start/nope', headers: h })).statusCode).toBe(404);
     expect((await a.inject({ method: 'GET', url: '/widget/v1/chats/start/job-1' })).statusCode).toBe(401);
+    // Исполнитель записал результат раньше, чем api поставил «pending»: результат не затирается.
+    await redis.set('rfm:start:job-1', JSON.stringify({ status: 'done', chatId: 5, messageId: 9, accountId: ACCOUNT }), 'EX', 60);
+    await a.inject({ method: 'POST', url: '/widget/v1/chats/start?v=2', headers: { ...h, 'content-type': 'application/json' }, payload: body });
+    expect(JSON.parse((await redis.get('rfm:start:job-1'))!)).toMatchObject({ status: 'done', chatId: 5 });
+    // Виджет прежней версии (без v=2): ждёт результат в запросе — успех с chatId, ошибка — 422 с причиной.
+    await redis.del('rfm:start:job-1');
+    setTimeout(() => void redis.set('rfm:start:job-1', JSON.stringify({ status: 'done', chatId: 6, messageId: 10, accountId: ACCOUNT }), 'EX', 60), 400);
+    const legacy = await a.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: { ...h, 'content-type': 'application/json' }, payload: body });
+    expect(legacy.json()).toEqual({ ticket: 'job-1', chatId: 6, messageId: 10 });
+    await redis.del('rfm:start:job-1');
+    setTimeout(() => void redis.set('rfm:start:job-1', JSON.stringify({ status: 'error', error: 'Номер не найден в MAX', accountId: ACCOUNT }), 'EX', 60), 400);
+    const legacyErr = await a.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: { ...h, 'content-type': 'application/json' }, payload: body });
+    expect(legacyErr.statusCode).toBe(422);
+    expect(legacyErr.json().error).toBe('Номер не найден в MAX');
     const empty = await a.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: { ...h, 'content-type': 'application/json' }, payload: { ...body, text: ' ' } });
     expect(empty.statusCode).toBe(400);
     await a.close();

@@ -11,7 +11,7 @@ import { verifyAmojoHook } from '../amojo/signature.ts';
 import { isAmoOrigin, tokenAudience, verifyWidgetToken, type Principal } from '../auth.ts';
 import type { Bridge, StartChatInput, WindowSendInput } from '../bridge.ts';
 import type { ChatEvent } from '../events.ts';
-import { startTicketKey, type JobQueue, type QueueSnapshot, type StartTicket } from '../queue.ts';
+import { START_LEGACY_WAIT_MS, startTicketKey, type JobQueue, type QueueSnapshot, type StartTicket } from '../queue.ts';
 import { chatRoutes } from './chat.ts';
 import { inboxRoutes } from './inbox.ts';
 import { CHAT_START_KINDS, ChannelValidationError, createChannelSchema, KIND_TEXT, PHONE_START_KINDS, STATUS_TEXT, validateChannel } from '../channels.ts';
@@ -435,7 +435,7 @@ export async function buildApp(deps: ApiDeps, opts: FastifyServerOptions = {}) {
       });
 
       // «Написать первым»: проверки, которые не требуют коннектора, — здесь и сразу; остальное — в очереди канала.
-      w.post('/chats/start', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
+      w.post<{ Querystring: { v?: string } }>('/chats/start', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
         const { accountId, userId } = who(req);
         const body = startChatSchema.safeParse(req.body);
         if (!body.success) return reply.code(400).send({ error: body.error.issues[0]?.message ?? 'Некорректные данные' });
@@ -443,14 +443,30 @@ export async function buildApp(deps: ApiDeps, opts: FastifyServerOptions = {}) {
         const channel = await store.channelOfAccount(accountId, body.data.channelId);
         if (!channel) return reply.code(422).send({ error: 'Канал не найден' });
         if (channel.status !== 'connected') return reply.code(422).send({ error: `${KIND_TEXT[channel.kind]} сейчас не подключён — проверьте канал в настройках виджета` });
+        let ticket: string;
         try {
-          const { ticket } = await deps.startChat({ accountId, userId, ...body.data });
-          await deps.redis.set(startTicketKey(ticket), JSON.stringify({ status: 'pending', accountId } satisfies StartTicket & { accountId: number }), 'EX', 600);
-          return { ticket };
+          ticket = (await deps.startChat({ accountId, userId, ...body.data })).ticket;
+          // NX: исполнитель мог уже записать результат — «pending» не должен его затереть.
+          await deps.redis.set(startTicketKey(ticket), JSON.stringify({ status: 'pending', accountId } satisfies StartTicket & { accountId: number }), 'EX', 600, 'NX');
         } catch (err) {
           req.log.warn({ err: (err as Error).message }, 'написать первым: ошибка');
           return reply.code(422).send({ error: (err as Error).message || 'Не удалось отправить' });
         }
+        if (req.query.v === '2') return { ticket };
+        // Виджет прежней версии ждёт результат в этом же запросе: иначе он покажет «Сообщение отправлено»,
+        // не проверив талон. Ждём до 20 с (меньше таймаута nginx), дольше — талон, как новому виджету.
+        const until = Date.now() + START_LEGACY_WAIT_MS;
+        while (Date.now() < until) {
+          const raw = await deps.redis.get(startTicketKey(ticket));
+          const t = raw ? (JSON.parse(raw) as StartTicket) : null;
+          if (t?.status === 'done') return { ticket, chatId: t.chatId, messageId: t.messageId };
+          if (t?.status === 'error') {
+            req.log.warn({ err: t.error }, 'написать первым: ошибка');
+            return reply.code(422).send({ error: t.error });
+          }
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        return { ticket };
       });
 
       /** Результат «Написать первым» по талону: pending → done {chatId, messageId} | error {error}. */

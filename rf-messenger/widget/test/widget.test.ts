@@ -140,7 +140,7 @@ describe('написать первым', () => {
     ta.dispatchEvent(new Event('input', { bubbles: true }));
     overlay.querySelector<HTMLElement>('[data-rfm="send"]')!.click();
     for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
-    const start = calls.find((c) => c.method === 'POST' && c.url.endsWith('/chats/start'))!;
+    const start = calls.find((c) => c.method === 'POST' && c.url.includes('/chats/start?v=2'))!;
     expect(JSON.parse(start.data!)).toEqual({ channelId: 3, contactId: 1, phone: '+7 936 147-23-24', text: 'Добрый день' });
     expect(polls).toBe(2);
     expect(overlay.textContent).toContain('Сообщение отправлено');
@@ -254,7 +254,7 @@ describe('этап 4: MAX, VK, Авито', () => {
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     overlay.querySelector<HTMLElement>('[data-rfm="send"]')!.click();
     for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
-    const start = calls.find((c) => c.method === 'POST' && c.url.endsWith('/chats/start'))!;
+    const start = calls.find((c) => c.method === 'POST' && c.url.includes('/chats/start?v=2'))!;
     expect(JSON.parse(start.data!)).toEqual({ channelId: 5, contactId: 1, chatId: 11, text: 'Добрый день' });
     expect(overlay.textContent).toContain('Сообщение отправлено');
     overlay.remove();

@@ -115,7 +115,7 @@ describe('этап 4: подключение MAX, VK, Авито из видже
     expect(c.json().channels).toEqual([{ id: vk.id, kind: 'vk', kindText: 'VK', title: 'РФ-Двери', connected: true, byChat: true, chats: [{ id: chat.id, title: 'Иван Петров' }] }]);
     expect(c.body).not.toContain('secret-vk');
 
-    const s = await app.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: h, payload: { channelId: vk.id, contactId: 1, chatId: chat.id, text: 'Добрый день' } });
+    const s = await app.inject({ method: 'POST', url: '/widget/v1/chats/start?v=2', headers: h, payload: { channelId: vk.id, contactId: 1, chatId: chat.id, text: 'Добрый день' } });
     expect(s.statusCode).toBe(200);
     expect(started).toEqual([{ accountId: ACCOUNT, userId: 7, channelId: vk.id, contactId: 1, chatId: chat.id, text: 'Добрый день' }]);
     expect((await app.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: h, payload: { channelId: vk.id, contactId: 1, text: 'x' } })).statusCode).toBe(400);

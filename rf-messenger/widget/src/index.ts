@@ -153,7 +153,8 @@ export class MessengerApi {
   }
   /** «Написать первым»: ответ сразу — талон; результат — startStatus (п. 4.1). */
   startChat(body: { channelId: number; contactId: number; phone?: string; chatId?: number; text: string }) {
-    return this.call<{ ticket: string }>('POST', '/widget/v1/chats/start', body);
+    // v=2: сервер отвечает талоном сразу, результат — awaitStart (старый виджет без v=2 ждёт результат в запросе).
+    return this.call<{ ticket: string }>('POST', '/widget/v1/chats/start?v=2', body);
   }
   startStatus(ticket: string) {
     return this.call<{ status: 'pending' } | { status: 'done'; chatId: number; messageId: number } | { status: 'error'; error: string }>('GET', `/widget/v1/chats/start/${encodeURIComponent(ticket)}`);
