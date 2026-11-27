@@ -12,7 +12,9 @@ RUN pnpm --filter @rf-messenger/server run build \
 
 FROM node:22-alpine
 WORKDIR /app
-ENV NODE_ENV=production MIGRATIONS_DIR=/app/migrations
+# Хеш коммита для «Диагностики» виджета: docker compose build передаёт APP_VERSION из окружения.
+ARG APP_VERSION=dev
+ENV NODE_ENV=production MIGRATIONS_DIR=/app/migrations APP_VERSION=$APP_VERSION
 COPY --from=build /out/server/node_modules node_modules
 COPY --from=build /out/server/package.json package.json
 COPY --from=build /app/server/dist dist

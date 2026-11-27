@@ -58,7 +58,7 @@ describe('написать первым', () => {
   });
 
   it('понятные ошибки: номера нет в мессенджере, канал не подключён, пустой текст, неверный номер — клиенту ничего не уходит', async () => {
-    await expect(t.bridge.startChat(input())).rejects.toThrow(/не найден в мессенджере/);
+    await expect(t.bridge.startChat(input())).rejects.toThrow(/не найден в Telegram-бот/);
     await expect(t.bridge.startChat(input({ text: '  ' }))).rejects.toThrow(StartChatError);
     await expect(t.bridge.startChat(input({ phone: '12' }))).rejects.toThrow(/Некорректный номер/);
     await expect(t.bridge.startChat(input({ channelId: 99999 }))).rejects.toThrow(/Канал не найден/);
@@ -67,5 +67,20 @@ describe('написать первым', () => {
     t.connector.phones.set('+79361472324', 'u:42:99');
     await expect(t.bridge.startChat(input())).rejects.toThrow(/не подключён/);
     expect(t.connector.sent).toHaveLength(0);
+  });
+
+  it('разбор 27.11: зависший поиск номера и зависшая отправка не держат «Написать» — ошибка с названием канала по таймауту', async () => {
+    const { Bridge } = await import('../src/bridge.ts');
+    t.connector.resolvePhone = () => new Promise(() => undefined); // MTProto через прокси «молчит»
+    const slowLookup = new Bridge({ ...t.bridgeDeps, rest: r.rest, lookupTimeoutMs: 60 });
+    await expect(slowLookup.startChat(input())).rejects.toThrow(/Telegram-бот: поиск номера: нет ответа за 0 с/);
+    expect(t.connector.sent).toHaveLength(0);
+    t.connector.phones.set('+79361472324', 'u:42:99');
+    t.connector.resolvePhone = async (phone: string) => ({ externalChatId: t.connector.phones.get(phone)! });
+    t.connector.send = () => new Promise(() => undefined);
+    const slowSend = new Bridge({ ...t.bridgeDeps, rest: r.rest, sendTimeoutMs: 60 });
+    await expect(slowSend.startChat(input())).rejects.toThrow(/Telegram-бот не ответил/);
+    // Чат уже создан и привязан — повторная попытка не ищет номер заново.
+    expect(await t.store.chatByPhone(t.channel.id, '+79361472324')).not.toBeNull();
   });
 });

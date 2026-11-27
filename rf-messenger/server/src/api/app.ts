@@ -22,6 +22,7 @@ import type { SecretBox } from '../crypto.ts';
 import { safeFileName, type FileStore } from '../files.ts';
 import type { Store } from '../store.ts';
 import { PROXY_STATUS_KEY, readProxyStatus } from '../proxy-monitor.ts';
+import { RecentLog } from '../recent-log.ts';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -118,9 +119,14 @@ export async function buildApp(deps: ApiDeps, opts: FastifyServerOptions = {}) {
   await app.register(multipart, { limits: { fileSize: deps.files.maxBytes, files: 1, fields: 5 } });
   await app.register(rateLimit, { max: 600, timeWindow: '1 minute' });
 
+  // Предупреждения и ошибки api — ещё и в журнал последних сбоев (виджет → «Диагностика»).
+  const recent = new RecentLog(deps.redis, 'api').wrap({ info: () => undefined, warn: () => undefined, error: () => undefined });
   app.setErrorHandler((err: FastifyError, req, reply) => {
     const status = err.statusCode ?? 500;
-    if (status >= 500) req.log.error({ err }, 'unhandled error');
+    if (status >= 500) {
+      req.log.error({ err }, 'unhandled error');
+      recent.error({ url: req.url.split('?')[0], status, err: err.message }, 'необработанная ошибка api');
+    }
     return reply.code(status).send({ error: status >= 500 ? 'internal_error' : err.message });
   });
 
@@ -270,6 +276,44 @@ export async function buildApp(deps: ApiDeps, opts: FastifyServerOptions = {}) {
     async (w) => {
       w.addHook('preHandler', auth);
       w.addHook('preHandler', adminOnly);
+
+      /**
+       * Диагностика для администратора (разбор 27.11): версия, состояние каналов и очередей, последние сбои обоих
+       * процессов — без телефонов и текстов. Нужна, чтобы прислать разработчику картину без входа на сервер.
+       */
+      w.get('/diag', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
+        const { accountId } = who(req);
+        const [channels, queues, recent, apiBoot, connBoot, proxy] = await Promise.all([
+          store.listChannels(accountId),
+          deps.queueSnapshot ? deps.queueSnapshot().catch(() => []) : Promise.resolve([]),
+          RecentLog.recent(deps.redis, 60),
+          deps.redis.get('rfm:boot:api').catch(() => null),
+          deps.redis.get('rfm:boot:connectors').catch(() => null),
+          deps.redis.get(PROXY_STATUS_KEY).catch(() => null),
+        ]);
+        // Последние талоны «Написать» этого аккаунта: виден исход каждой попытки.
+        const tickets: { ticket: string; status: string; error?: string }[] = [];
+        try {
+          const keys = await deps.redis.keys('rfm:start:*');
+          for (const k of keys.slice(-30)) {
+            const t = JSON.parse((await deps.redis.get(k)) ?? '{}') as { status?: string; error?: string; accountId?: number };
+            if (t.accountId === accountId && t.status) tickets.push({ ticket: k.slice('rfm:start:'.length), status: t.status, ...(t.error ? { error: t.error } : {}) });
+          }
+        } catch {
+          /* Redis недоступен — остальное всё равно отдаём */
+        }
+        return {
+          version: env.APP_VERSION,
+          now: new Date().toISOString(),
+          boot: { api: apiBoot ? new Date(Number(apiBoot)).toISOString() : null, connectors: connBoot ? new Date(Number(connBoot)).toISOString() : null },
+          proxy: readProxyStatus(proxy),
+          channels: channels.map((c) => ({ id: c.id, kind: c.kind, kindText: KIND_TEXT[c.kind], status: c.status, statusText: STATUS_TEXT[c.status], detail: c.statusDetail, updatedAt: c.createdAt })),
+          queues,
+          stats: await store.outboundStats(Date.now() - 24 * 3_600_000, accountId),
+          recent,
+          tickets,
+        };
+      });
 
       w.get('/status', async (req) => {
         const { accountId } = who(req);
@@ -450,6 +494,7 @@ export async function buildApp(deps: ApiDeps, opts: FastifyServerOptions = {}) {
           await deps.redis.set(startTicketKey(ticket), JSON.stringify({ status: 'pending', accountId } satisfies StartTicket & { accountId: number }), 'EX', 600, 'NX');
         } catch (err) {
           req.log.warn({ err: (err as Error).message }, 'написать первым: ошибка');
+          recent.warn({ channelId: channel.id, kind: channel.kind, err: (err as Error).message }, 'написать первым: не поставлено в очередь');
           return reply.code(422).send({ error: (err as Error).message || 'Не удалось отправить' });
         }
         if (req.query.v === '2') return { ticket };

@@ -11,6 +11,8 @@ const proxyUrl = z
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  /** Версия сборки (хеш коммита), подставляется при сборке образа; видна в «Диагностике» виджета. */
+  APP_VERSION: z.string().trim().max(64).default('dev'),
 
   HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().int().positive().default(3100),

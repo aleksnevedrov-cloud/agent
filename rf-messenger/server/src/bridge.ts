@@ -48,6 +48,8 @@ export interface BridgeDeps {
   sendTimeoutMs?: number;
   /** Срок жизни исходящего в очереди (по умолчанию 2 мин, п. 4.7). */
   sendDeadlineMs?: number;
+  /** «Написать»: поиск номера в мессенджере (по умолчанию 15 с). */
+  lookupTimeoutMs?: number;
 }
 
 /** Отправка из окна переписки в карточке: текст и/или файлы в существующий чат от имени сотрудника. */
@@ -684,6 +686,7 @@ export class Bridge {
     const conn = await this.d.store.getConnection(input.accountId);
     if (!conn || !this.d.amojo) throw new StartChatError('Канал чатов amoCRM не подключён к аккаунту');
     if (!this.d.rest) throw new StartChatError('Нет доступа к amoCRM: интеграция не авторизована');
+    const kindText = KIND_TEXT[channel.kind] ?? channel.kind;
 
     let chat: Chat | null;
     if (input.chatId) {
@@ -698,21 +701,26 @@ export class Bridge {
       // Чат с этим номером уже был (клиент писал раньше) — продолжаем его, а не заводим второй.
       chat = await this.d.store.chatByPhone(channel.id, phone);
       if (!chat) {
-        const peer = await connector.resolvePhone(phone);
-        if (!peer) throw new StartChatError(`Номер ${phone} не найден в мессенджере или скрыт настройками приватности`);
-        const contact = await this.d.rest.contact(input.accountId, input.contactId);
+        // Каждый внешний шаг — с пределом времени (разбор 27.11): зависший MTProto/прокси раньше держал «Отправляем…» бесконечно.
+        const peer = await withTimeout(connector.resolvePhone(phone), this.d.lookupTimeoutMs ?? 15_000, `${kindText}: поиск номера`);
+        if (!peer) throw new StartChatError(`Номер ${phoneTail4(phone) ? `…${phoneTail4(phone)}` : ''} не найден в ${kindText} или скрыт настройками приватности`);
+        const contact = await withTimeout(this.d.rest.contact(input.accountId, input.contactId), 10_000, 'amoCRM: контакт');
         chat = await this.d.store.upsertChat(channel, { externalChatId: peer.externalChatId, isGroup: false, title: peer.title ?? contact.name, contact: { phone } });
       }
     }
 
-    const { chatId: amojoChatId } = await this.d.amojo.createChat(conn.scopeId, chat.conversationId, this.clientUser(chat));
+    const { chatId: amojoChatId } = await withTimeout(this.d.amojo.createChat(conn.scopeId, chat.conversationId, this.clientUser(chat)), 10_000, 'amoCRM: создание чата');
     await this.d.store.setAmojoChatId(chat.id, amojoChatId);
-    await this.d.rest.linkChat(input.accountId, amojoChatId, input.contactId);
-    await this.markMaxContact(chat, input.contactId);
-    const ref = await this.d.rest.userAmojoId(input.accountId, input.userId);
+    await withTimeout(this.d.rest.linkChat(input.accountId, amojoChatId, input.contactId), 10_000, 'amoCRM: привязка чата к контакту');
+    await withTimeout(this.markMaxContact(chat, input.contactId), 10_000, 'amoCRM: пометка контакта').catch((err: Error) => this.d.log.warn({ chatId: chat.id, err: err.message }, 'пометка контакта не выполнена'));
+    const ref = await withTimeout(this.d.rest.userAmojoId(input.accountId, input.userId), 5_000, 'amoCRM: сотрудник').catch(() => null);
     if (ref) await this.d.store.rememberAmoOperator(input.accountId, chat.id, ref);
 
-    const sent = await connector.send({ externalChatId: chat.externalChatId, text, file: null, replyToExternalId: null });
+    const sent = await withTimeout(
+      connector.send({ externalChatId: chat.externalChatId, text, file: null, replyToExternalId: null }),
+      this.d.sendTimeoutMs ?? SEND_TIMEOUT_MS,
+      `${kindText} не ответил`,
+    );
     const msg = await this.d.store.insertFromChannel({
       chat,
       source: 'phone',

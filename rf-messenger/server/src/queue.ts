@@ -76,6 +76,8 @@ export const START_WAIT_MS = 60_000;
 export const startTicketKey = (ticket: string) => `rfm:start:${ticket}`;
 /** Виджет прежней версии (без ?v=2) ждёт результат «Написать» в самом запросе — не дольше этого. */
 export const START_LEGACY_WAIT_MS = 20_000;
+/** Вся задача «Написать» (поиск номера, amo, отправка) — не дольше этого; дальше талон получает ошибку. */
+export const START_JOB_TIMEOUT_MS = 60_000;
 export const START_TICKET_TTL_SEC = 600;
 export type StartTicket = { status: 'pending' } | { status: 'done'; chatId: number; messageId: number } | { status: 'error'; error: string };
 

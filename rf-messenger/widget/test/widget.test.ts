@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { amojoAccountId, cardContext, describeAjaxError, MessengerApi, mountSettings, openComposer, placeSaveButton, renderComposer, renderHtml, type AmoWidgetSelf, type StatusView } from '../src/index.ts';
+import { amojoAccountId, cardContext, describeAjaxError, diagText, MessengerApi, mountSettings, openComposer, placeSaveButton, renderComposer, renderHtml, type AmoWidgetSelf, type StatusView } from '../src/index.ts';
 
 const status: StatusView = {
   amojo: { configured: true, connected: false },
@@ -347,5 +347,35 @@ describe('кнопка «Сохранить» в окне настроек', () 
     expect(holder.querySelector('.js-widget-save')).not.toBeNull();
     document.body.innerHTML = '<div class="widget_settings_block"></div>';
     expect(placeSaveButton(document.querySelector<HTMLElement>('.widget_settings_block')!)).toBe(false);
+  });
+});
+
+describe('диагностика в настройках (разбор 27.11)', () => {
+  it('кнопка «Показать» запрашивает /widget/v1/diag и выводит текст без телефонов; текст пригоден для пересылки', async () => {
+    const calls: { url: string; method?: string; data?: string }[] = [];
+    const diag = {
+      version: 'abc1234', now: '2026-11-27T09:00:00Z', boot: { api: '2026-11-27T08:00:00Z', connectors: '2026-11-27T08:00:05Z' }, proxy: { proxy: 'ok', proxyActive: 'primary' },
+      channels: [{ id: 3, kind: 'telegram_user', kindText: 'Telegram', status: 'connected', statusText: 'Подключён', detail: null, updatedAt: '2026-11-27T08:00:00Z' }],
+      queues: [{ name: 'rfm-ch-3', waiting: 1, active: 1, delayed: 0, failed: 2, oldestWaitingSec: 45 }],
+      stats: [{ channelId: 3, kind: 'telegram_user', total: 5, sent: 3, failed: 2, queued: 0, p50Ms: 900, p95Ms: 19000 }],
+      recent: [{ at: '2026-11-27T08:59:00Z', process: 'connectors', level: 'warn', msg: 'написать первым: ошибка', data: { channelId: 3, err: 'Telegram: поиск номера: нет ответа за 15 с' } }],
+      tickets: [{ ticket: '77', status: 'error', error: 'Telegram не ответил: нет ответа за 20 с' }],
+    };
+    const api = new MessengerApi(fakeSelf({ 'GET /widget/v1/status': status, 'GET /widget/v1/diag': diag }, calls), 'https://chat.example.ru');
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    await mountSettings(el, api);
+    el.querySelector<HTMLElement>('[data-rfm="diag"]')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls.some((c) => c.url.endsWith('/widget/v1/diag'))).toBe(true);
+    const text = el.querySelector<HTMLTextAreaElement>('.rfm-diag-text')!.value;
+    expect(text).toContain('версия сервера abc1234');
+    expect(text).toContain('rfm-ch-3: ждут 1, выполняется 1, отложено 0, упало 2, самая старая ждёт 45 с');
+    expect(text).toContain('77: error — Telegram не ответил');
+    expect(text).toContain('поиск номера: нет ответа за 15 с');
+    expect(el.textContent).toContain('Есть на что посмотреть');
+    expect(diagText({ ...diag, channels: [], queues: [], stats: [], recent: [], tickets: [] })).toContain('Последние сбои (0)');
+    el.remove();
   });
 });

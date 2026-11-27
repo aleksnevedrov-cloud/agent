@@ -321,6 +321,13 @@ describe('написать первым и OAuth', () => {
     const legacyErr = await a.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: { ...h, 'content-type': 'application/json' }, payload: body });
     expect(legacyErr.statusCode).toBe(422);
     expect(legacyErr.json().error).toBe('Номер не найден в MAX');
+    // «Диагностика»: только администратору; без телефонов, с талонами аккаунта и последними сбоями.
+    expect((await a.inject({ method: 'GET', url: '/widget/v1/diag', headers: h })).statusCode).toBe(403);
+    const diag = await a.inject({ method: 'GET', url: '/widget/v1/diag', headers: { 'x-auth-token': await token() } });
+    expect(diag.statusCode).toBe(200);
+    expect(diag.json()).toMatchObject({ version: 'dev', channels: expect.any(Array), queues: expect.any(Array), recent: expect.any(Array) });
+    expect(diag.json().tickets).toEqual(expect.arrayContaining([{ ticket: 'job-1', status: 'error', error: 'Номер не найден в MAX' }]));
+    expect(diag.body).not.toContain('79361472324');
     const empty = await a.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: { ...h, 'content-type': 'application/json' }, payload: { ...body, text: ' ' } });
     expect(empty.statusCode).toBe(400);
     await a.close();

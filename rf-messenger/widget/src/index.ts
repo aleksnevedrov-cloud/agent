@@ -20,6 +20,43 @@ export interface AmoWidgetSelf {
   $authorizedAjax(opts: { url: string; method?: string; data?: string; contentType?: string; dataType?: string }): PromiseLike<unknown>;
 }
 
+export interface DiagView {
+  version: string;
+  now: string;
+  boot: { api: string | null; connectors: string | null };
+  proxy: { proxy?: string; proxyActive?: string; proxyCheckedAt?: string | null; proxyLatencyMs?: number | null };
+  channels: { id: number; kind: string; kindText: string; status: string; statusText: string; detail: string | null; updatedAt: string }[];
+  queues: { name: string; waiting: number; active: number; delayed: number; failed: number; oldestWaitingSec: number }[];
+  stats: { channelId: number; kind: string; total: number; sent: number; failed: number; queued: number; p50Ms: number | null; p95Ms: number | null }[];
+  recent: { at: string; process: string; level: string; msg: string; data: Record<string, unknown> }[];
+  tickets: { ticket: string; status: string; error?: string }[];
+}
+
+/** Текст «Диагностики» для пересылки разработчику: коротко и без личных данных. */
+export function diagText(d: DiagView): string {
+  const t = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) : '—');
+  const lines = [
+    `Rf Messenger — диагностика ${t(d.now)} МСК, версия сервера ${d.version}`,
+    `Запуск api: ${t(d.boot.api)}; connectors: ${t(d.boot.connectors)}; прокси: ${d.proxy.proxy ?? '—'}${d.proxy.proxyActive ? ` (${d.proxy.proxyActive})` : ''}`,
+    '',
+    'Каналы:',
+    ...d.channels.map((c) => `  #${c.id} ${c.kindText}: ${c.statusText}${c.detail ? ` — ${c.detail}` : ''} (создан ${t(c.updatedAt)})`),
+    '',
+    'Очереди:',
+    ...d.queues.map((q) => `  ${q.name}: ждут ${q.waiting}, выполняется ${q.active}, отложено ${q.delayed}, упало ${q.failed}${q.oldestWaitingSec ? `, самая старая ждёт ${q.oldestWaitingSec} с` : ''}`),
+    '',
+    'Исходящие за сутки:',
+    ...(d.stats.length ? d.stats.map((s) => `  канал #${s.channelId} (${s.kind}): всего ${s.total}, отправлено ${s.sent}, ошибок ${s.failed}, в очереди ${s.queued}, медиана ${s.p50Ms ?? '—'} мс, 95 % ${s.p95Ms ?? '—'} мс`) : ['  нет']),
+    '',
+    'Последние «Написать»:',
+    ...(d.tickets.length ? d.tickets.map((x) => `  ${x.ticket}: ${x.status}${x.error ? ` — ${x.error}` : ''}`) : ['  нет']),
+    '',
+    `Последние сбои (${d.recent.length}):`,
+    ...d.recent.map((r) => `  ${t(r.at)} [${r.process} ${r.level}] ${r.msg} ${JSON.stringify(r.data)}`),
+  ];
+  return lines.join('\n');
+}
+
 export interface ChannelView {
   id: number;
   kind: string;
@@ -128,6 +165,10 @@ export class MessengerApi {
 
   status() {
     return this.call<StatusView>('GET', '/widget/v1/status');
+  }
+  /** Диагностика: версия, каналы, очереди, последние сбои, талоны «Написать» (без телефонов и текстов). */
+  diag() {
+    return this.call<DiagView>('GET', '/widget/v1/diag');
   }
   connectAmojo(amojoAccountId: string) {
     return this.call<{ connected: boolean }>('POST', '/widget/v1/amojo/connect', { amojoAccountId });
@@ -388,6 +429,9 @@ export function renderHtml(s: StatusView, notice: { error?: string; info?: strin
   return `<div class="rfm">
 <style>${CSS}</style>
 ${banner}${amojoBanner(s.amojo)}${oauthBanner(s.oauth)}
+<div class="rfm-sec">Диагностика</div>
+<div class="rfm-card"><div class="rfm-main"><b>Состояние сервиса</b><div class="rfm-sub">Версия, каналы, очереди, последние сбои и попытки «Написать» — без номеров и текстов. Если что-то не работает, нажмите и перешлите текст разработчику.</div></div><button type="button" class="rfm-btn" data-rfm="diag">Показать</button></div>
+<div data-rfm-diag></div>
 <div class="rfm-sec">Шаблоны сообщений</div>
 <div class="rfm-card"><div class="rfm-main"><b>Общие шаблоны</b><div class="rfm-sub">Доступны всем менеджерам в окне переписки по «/». Личные шаблоны каждый ведёт сам: ⋮ → «Мои шаблоны».</div></div><button type="button" class="rfm-btn" data-rfm="templates">Открыть</button></div>
 <div class="rfm-sec">Каналы · ${s.channels.length}</div>
@@ -521,6 +565,31 @@ export async function mountSettings(el: HTMLElement, api: MessengerApi, w: Windo
     }
     if (btn.dataset.rfm === 'templates') {
       w.dispatchEvent(new CustomEvent('rfm:templates', { detail: { shared: true } }));
+      return;
+    }
+    if (btn.dataset.rfm === 'diag') {
+      const box = el.querySelector<HTMLElement>('[data-rfm-diag]');
+      if (!box) return;
+      box.innerHTML = '<div class="rfm-sub" style="margin:8px 0">Собираем…</div>';
+      void api.diag().then(
+        (d) => {
+          const bad = d.channels.filter((c) => c.status !== 'connected').length + d.queues.filter((q) => q.oldestWaitingSec >= 30 || q.failed > 0).length;
+          box.innerHTML = `<div class="rfm-banner ${bad ? 'rfm-warn-bg' : 'rfm-ok-bg'}" style="margin:8px 0"><div>${bad ? `Есть на что посмотреть: ${bad}` : 'Каналы подключены, очереди пустые'}. Последних сбоев: ${d.recent.length}</div></div>
+<textarea readonly class="rfm-diag-text" style="width:100%;min-height:220px;font:12px/1.4 monospace;border:1px solid #cfd7df;border-radius:6px;padding:8px">${esc(diagText(d))}</textarea>
+<button type="button" class="rfm-btn" data-rfm="diag-copy" style="margin-top:6px">Скопировать</button>`;
+        },
+        (err: Error) => void (box.innerHTML = `<div class="rfm-banner rfm-err-bg" style="margin:8px 0"><div>${esc(err.message)}</div></div>`),
+      );
+      return;
+    }
+    if (btn.dataset.rfm === 'diag-copy') {
+      const ta = el.querySelector<HTMLTextAreaElement>('.rfm-diag-text');
+      if (!ta) return;
+      ta.select();
+      void (w.navigator?.clipboard?.writeText(ta.value) ?? Promise.reject(new Error('нет буфера'))).then(
+        () => void (btn.textContent = 'Скопировано'),
+        () => void (btn.textContent = 'Выделено — нажмите Ctrl+C'),
+      );
       return;
     }
     if (btn.dataset.rfm === 'connect') {
@@ -747,9 +816,14 @@ export async function openComposer(api: MessengerApi, ctx: { leadId?: number; co
       if (!contactId) return draw('В карточке нет контакта — добавьте его');
       busy = true;
       btn.textContent = 'Отправляем…';
+      // Дольше 8 с — объясняем, чего ждём (обычно 1–3 с): поиск номера у мессенджера или ответ amoCRM.
+      const slow = setTimeout(() => {
+        if (busy) draw('Ждём ответ мессенджера: поиск номера и отправка занимают до 20 с. Если не дождётесь — причина появится здесь.');
+      }, 8000);
       void api
         .startChat({ channelId: sel.channelId, contactId, ...(byChat ? { chatId: sel.chatId } : { phone: sel.phone }), text: text.trim() })
         .then((r) => api.awaitStart(r.ticket))
+        .finally(() => clearTimeout(slow))
         .then(
         () => {
           overlay.innerHTML = `<style>${CSS}${CARD_CSS}</style><div class="rfm-modal"><h3>Сообщение отправлено</h3><div>Переписка появится в чате сделки. Если её не видно — обновите страницу.</div><div class="rfm-actions"><button type="button" class="rfm-btn rfm-btn-primary" data-rfm="cancel">Готово</button></div></div>`;

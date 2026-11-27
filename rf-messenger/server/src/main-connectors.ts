@@ -17,6 +17,7 @@ import { createCore } from './deps.ts';
 import { BullJobQueue, channelQueueName, MEDIA_CONCURRENCY, MEDIA_QUEUE_NAME, QUEUE_NAME, RedisPacer, START_QUEUE_NAME, WEBHOOK_QUEUE_NAME, type JobData, type JobName, type WebhookJob } from './queue.ts';
 import type { StartChatInput, WindowSendInput } from './bridge.ts';
 import { ChannelWorkers, dailySummaryDue } from './workers.ts';
+import { RecentLog } from './recent-log.ts';
 import { RedisChatEvents } from './events.ts';
 
 // На сервере нет рабочего IPv6: без этого запросы к Telegram/WhatsApp периодически зависают на AAAA-адресах.
@@ -39,7 +40,7 @@ const levels = ['fatal', 'error', 'warn', 'info', 'debug', 'trace'];
 const write = (level: string) => (obj: object, msg?: string) => {
   if (levels.indexOf(level) <= levels.indexOf(env.LOG_LEVEL)) process.stdout.write(`${redactSecrets(JSON.stringify({ level, time: new Date().toISOString(), msg, ...obj }), secrets)}\n`);
 };
-const log: Logger = { info: write('info'), warn: write('warn'), error: write('error') };
+const log: Logger = new RecentLog(core.redis, 'connectors').wrap({ info: write('info'), warn: write('warn'), error: write('error') });
 
 // Прокси только для Telegram и WhatsApp; amoCRM (amojo, вложения), postgres, redis — напрямую.
 // Основной и запасной; Telegram берёт текущий при каждом запросе, WhatsApp — при подключении.

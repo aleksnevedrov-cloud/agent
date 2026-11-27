@@ -8,6 +8,7 @@ import { PermanentSendError } from '../src/connectors/types.ts';
 import type { ChatEvent } from '../src/events.ts';
 import { BullJobQueue, channelQueueName, MEDIA_QUEUE_NAME, QUEUE_NAME, startTicketKey } from '../src/queue.ts';
 import { ChannelWorkers, dailySummaryDue } from '../src/workers.ts';
+import { RecentLog, sanitizeEntry } from '../src/recent-log.ts';
 import { ACCOUNT, event, FakeConnector, setupBridge, silent, TEST_REDIS_URL } from './helpers.ts';
 
 let redis: Redis;
@@ -311,5 +312,51 @@ describe('4.9 и 4.10: уведомления, сводка, замеры', () =
     expect(s).toMatchObject({ channelId: t.channel.id, kind: 'telegram_bot', total: 6, sent: 5, failed: 1, queued: 0, p50Ms: 600 });
     expect(s!.p95Ms).toBeGreaterThan(4000);
     expect(await t.store.outboundStats(Date.now() - 60_000, 999)).toEqual([]);
+  });
+
+});
+
+describe('разбор 27.11: предел задачи «Написать», журнал последних сбоев', () => {
+  it('startChat завис целиком — талон получает ошибку по общему пределу, исполнитель канала освобождается', async () => {
+    const queue = new BullJobQueue(redis);
+    await queue.queue(channelQueueName(t.channel.id)).obliterate({ force: true }).catch(() => undefined);
+    const hang = new Bridge({ ...t.bridgeDeps, rest, queue });
+    hang.startChat = () => new Promise(() => undefined);
+    const workers = new ChannelWorkers({ redis, bridge: hang, log: silent, concurrency: 1, startTimeoutMs: 300 });
+    try {
+      await workers.sync([t.channel.id]);
+      const ticket = await queue.addStart({ accountId: ACCOUNT, userId: 7, channelId: t.channel.id, contactId: 1, phone: '+79361472324', text: 'x' });
+      let raw: string | null = null;
+      for (let i = 0; i < 100 && !raw; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        raw = await redis.get(startTicketKey(ticket));
+      }
+      expect(JSON.parse(raw!)).toMatchObject({ status: 'error', error: expect.stringMatching(/Отправка: нет ответа за 0 с/) });
+      // Следующая задача канала выполняется — исполнитель не занят зависшей.
+      const chat = await clientChat();
+      const { messageIds } = await hang.queueFromWindow(windowInput(chat.id, 'после зависания'));
+      for (let i = 0; i < 100 && t.connector.sent.length === 0; i++) await new Promise((r) => setTimeout(r, 50));
+      expect(t.connector.sent.map((s) => s.text)).toEqual(['после зависания']);
+      expect(messageIds).toHaveLength(1);
+    } finally {
+      await workers.close();
+      await queue.queue(channelQueueName(t.channel.id)).obliterate({ force: true }).catch(() => undefined);
+      await queue.close();
+    }
+  }, 20_000);
+
+  it('журнал последних сбоев: предупреждения уходят в Redis без телефонов и текстов, читаются последними первыми', async () => {
+    expect(sanitizeEntry({ channelId: 3, err: 'номер +7 936 147-23-24 не найден', text: 'секретный текст', phone: '+79361472324', ok: true })).toEqual({ channelId: 3, err: 'номер …2324 не найден', ok: true });
+    await redis.del('rfm:log:recent');
+    const log = new RecentLog(redis, 'connectors').wrap(silent);
+    log.warn({ channelId: 3, err: 'GREEN-API: HTTP 466' }, 'написать первым: ошибка');
+    log.error({ channelId: 4 }, 'коннектор не запущен');
+    await new Promise((r) => setTimeout(r, 50));
+    const recent = await RecentLog.recent(redis, 10);
+    expect(recent.map((x) => [x.level, x.msg])).toEqual([
+      ['error', 'коннектор не запущен'],
+      ['warn', 'написать первым: ошибка'],
+    ]);
+    expect(recent[1]).toMatchObject({ process: 'connectors', data: { channelId: 3, err: 'GREEN-API: HTTP 466' } });
   });
 });

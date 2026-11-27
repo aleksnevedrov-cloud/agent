@@ -33,7 +33,10 @@ services:
       retries: 10
 
   api:
-    build: .
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
     restart: unless-stopped
     env_file: .env
     environment:
@@ -54,7 +57,10 @@ services:
       retries: 3
 
   connectors:
-    build: .
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
     restart: unless-stopped
     env_file: .env
     environment:
