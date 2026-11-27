@@ -83,4 +83,41 @@ describe('написать первым', () => {
     // Чат уже создан и привязан — повторная попытка не ищет номер заново.
     expect(await t.store.chatByPhone(t.channel.id, '+79361472324')).not.toBeNull();
   });
+
+  it('как мессенджер (разбор 27.11): клиенту уходит до обращений к amoCRM, onSent — сразу после отправки; сбой amoCRM после отправки не ломает «Написать»', async () => {
+    const { Bridge } = await import('../src/bridge.ts');
+    t.connector.phones.set('+79361472324', 'u:42:99');
+    let amoCallsAtSent = -1;
+    const res = await t.bridge.startChat(input(), { onSent: () => void (amoCallsAtSent = t.calls.length) });
+    expect(amoCallsAtSent).toBe(0); // ни createChat, ни сообщения в amo ещё не было
+    expect(t.connector.sent).toHaveLength(1);
+    expect((await t.store.messageById(res.messageId))?.status).toBe('synced'); // amo догнали в той же задаче
+    // amoCRM не отвечает: клиент получил сообщение, talon закрыт onSent, в ленту уйдёт очередью.
+    t.connector.phones.set('+79160000001', 'u:43:1');
+    const brokenAmojo = { ...t.amojo, createChat: () => Promise.reject(new Error('amojo 503')), sendMessage: () => Promise.reject(new Error('amojo 503')) } as unknown as typeof t.amojo;
+    const b = new Bridge({ ...t.bridgeDeps, rest: r.rest, amojo: brokenAmojo });
+    let sentHook = false;
+    const r2 = await b.startChat(input({ phone: '+79160000001' }), { onSent: () => void (sentHook = true) });
+    expect(sentHook).toBe(true);
+    expect(t.connector.sent).toHaveLength(2);
+    expect((await t.store.messageById(r2.messageId))?.status).toBe('received');
+    expect(t.queue.jobs.some((j) => j.name === 'to-amo' && j.data.messageId === r2.messageId)).toBe(true);
+  });
+
+  it('предварительный поиск номера: чат готов до «Отправить», сама отправка номер не ищет; MAX по номеру и неизвестный номер — пропуск', async () => {
+    t.connector.phones.set('+79361472324', 'u:42:99');
+    let lookups = 0;
+    const orig = t.connector.resolvePhone.bind(t.connector);
+    t.connector.resolvePhone = (phone: string) => (lookups++, orig(phone));
+    expect(await t.bridge.prepareChat({ accountId: ACCOUNT, channelId: t.channel.id, phone: '8 (936) 147-23-24' })).toBe('ready');
+    expect(await t.bridge.prepareChat({ accountId: ACCOUNT, channelId: t.channel.id, phone: '8 (936) 147-23-24' })).toBe('exists');
+    expect(await t.bridge.prepareChat({ accountId: ACCOUNT, channelId: t.channel.id, phone: '+79990000000' })).toBe('not_found');
+    expect(lookups).toBe(2);
+    const res = await t.bridge.startChat(input());
+    expect(lookups).toBe(2); // номер не искали второй раз
+    expect((await t.store.chatById(res.chatId))?.externalChatId).toBe('u:42:99');
+    await t.db.query("UPDATE channels SET kind = 'max_phone' WHERE id = $1", [t.channel.id]);
+    expect(await t.bridge.prepareChat({ accountId: ACCOUNT, channelId: t.channel.id, phone: '+79361472325' })).toBe('skipped');
+    expect(await t.bridge.prepareChat({ accountId: 1, channelId: t.channel.id, phone: '+79361472325' })).toBe('skipped');
+  });
 });

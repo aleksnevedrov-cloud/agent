@@ -328,6 +328,14 @@ describe('написать первым и OAuth', () => {
     expect(diag.json()).toMatchObject({ version: 'dev', channels: expect.any(Array), queues: expect.any(Array), recent: expect.any(Array) });
     expect(diag.json().tickets).toEqual(expect.arrayContaining([{ ticket: 'job-1', status: 'error', error: 'Номер не найден в MAX' }]));
     expect(diag.body).not.toContain('79361472324');
+    // Предварительный поиск номера: WhatsApp — в очередь; Telegram-бот (не по номеру) и MAX по номеру — нет.
+    const prepared: unknown[] = [];
+    const b = await buildApp({ env: t.env, store: t.store, files: t.files, bridge: t.bridge, amojo: t.amojo, box: t.box, redis, rest: restStub(), prepareChat: async (i) => void prepared.push(i) });
+    expect((await b.inject({ method: 'POST', url: '/widget/v1/chats/prepare', headers: { ...h, 'content-type': 'application/json' }, payload: { channelId: wa!.id, phone: '+7 936 147-23-24' } })).json()).toEqual({ queued: true });
+    expect(prepared).toEqual([{ accountId: ACCOUNT, channelId: wa!.id, phone: '+7 936 147-23-24' }]);
+    expect((await b.inject({ method: 'POST', url: '/widget/v1/chats/prepare', headers: { ...h, 'content-type': 'application/json' }, payload: { channelId: t.channel.id, phone: '+7 936 147-23-24' } })).json()).toEqual({ queued: false });
+    expect((await b.inject({ method: 'POST', url: '/widget/v1/chats/prepare', headers: { 'content-type': 'application/json' }, payload: { channelId: wa!.id, phone: '+7 936 147-23-24' } })).statusCode).toBe(401);
+    await b.close();
     const empty = await a.inject({ method: 'POST', url: '/widget/v1/chats/start', headers: { ...h, 'content-type': 'application/json' }, payload: { ...body, text: ' ' } });
     expect(empty.statusCode).toBe(400);
     await a.close();

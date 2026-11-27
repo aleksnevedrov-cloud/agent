@@ -53,6 +53,7 @@ const app = await buildApp({
   webhooks: { add: async (channelId, body) => void (await webhookQueue.add('avito', { channelId, body })) },
   // «Написать» и отправка из окна не ждут коннектор: задача в очередь канала, ответ сразу (п. 4.1).
   startChat: async (input) => ({ ticket: await queue.addStart(input) }),
+  prepareChat: (input) => queue.addPrepare(input),
   windowSend: (input) => bridge.queueFromWindow(input),
   queueSnapshot: async () => {
     const channels = await core.store.activeChannels();

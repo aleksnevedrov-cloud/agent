@@ -166,10 +166,13 @@ describe('окно переписки', () => {
     // Кнопки «Отвечать не нужно» в карточке сделки нет (чат 11 имеет unread: 1) — она только в разделе левого меню.
     expect(win.querySelector('[data-cw="noreply"]')).toBeNull();
     // ☰ — список чатов контакта.
+    // Выбор мессенджера — в шапке: переписки контакта и «Написать в …» для остальных каналов.
+    expect(win.querySelector('[data-cw="list"]')!.innerHTML).toContain('rfm-cw-badge');
     win.querySelector<HTMLElement>('[data-cw="list"]')!.click();
-    expect(win.querySelectorAll('[data-cw="open"]')).toHaveLength(2);
+    expect(win.querySelectorAll('.rfm-cw-menu [data-cw="open"]')).toHaveLength(2);
+    expect(win.querySelector('.rfm-cw-menu')!.textContent).toContain('Telegram-бот');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    expect(win.querySelector('.rfm-cw-drawer')).toBeNull();
+    expect(win.querySelector('.rfm-cw-menu')).toBeNull();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(document.querySelector('.rfm-cw')).toBeNull();
     close();

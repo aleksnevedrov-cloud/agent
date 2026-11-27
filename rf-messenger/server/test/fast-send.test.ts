@@ -167,7 +167,7 @@ describe('4.2 изоляция каналов (настоящие очереди
       expect(Date.now() - started).toBeLessThan(8_000);
       // Статус пишется сразу после ответа мессенджера — даём исполнителю мгновение.
       let status = (await t.store.messageById(messageIds[0]!))?.status;
-      for (let i = 0; i < 60 && status === 'queued'; i++) {
+      for (let i = 0; i < 60 && status !== 'synced'; i++) {
         await new Promise((r) => setTimeout(r, 50));
         status = (await t.store.messageById(messageIds[0]!))?.status;
       }

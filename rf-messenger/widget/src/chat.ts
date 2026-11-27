@@ -162,8 +162,13 @@ export class ChatApi {
   usedTemplate(id: number) {
     return this.api.call<{ ok: boolean }>('POST', `/chat/v1/templates/${id}/used`).catch(() => ({ ok: false }));
   }
-  startChat(body: { channelId: number; contactId: number; phone?: string; chatId?: number; text: string }) {
-    return this.api.call<{ chatId: number; messageId: number }>('POST', '/widget/v1/chats/start', body);
+  /** «Написать» из окна: талон сразу, результат — как только клиент получил сообщение. */
+  async startChat(body: { channelId: number; contactId: number; phone?: string; chatId?: number; text: string }) {
+    const r = await this.api.startChat(body);
+    return this.api.awaitStart(r.ticket);
+  }
+  prepare(channelId: number, phone: string) {
+    return this.api.prepare(channelId, phone);
   }
 
   /** Загрузка файла: multipart по сеансу (через $authorizedAjax файл не отправить). */
@@ -425,6 +430,10 @@ export const CW_CSS = `
 .rfm-cw-item-side{display:flex;flex-direction:column;align-items:flex-end;gap:4px;color:#8a96a3;font-size:11px}
 .rfm-cw-unread{font-style:normal;background:#25c25a;color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:600}
 .rfm-cw-empty{padding:18px;text-align:center;color:#8a96a3;font-size:13px}
+.rfm-cw-chan{width:auto;padding:0 6px;gap:4px;font-size:11px}
+.rfm-cw-menu-left{right:auto;left:10px;min-width:300px}
+.rfm-cw-menu .rfm-cw-item{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;text-align:left;padding:8px 10px;border-radius:6px}
+.rfm-cw-menu .rfm-cw-item-on{background:#eef5ff}
 .rfm-cw-menu{position:absolute;right:10px;top:46px;background:#fff;border:1px solid #cfd7df;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);z-index:4;min-width:220px;padding:4px}
 .rfm-cw-menu button{display:block;width:100%;border:0;background:transparent;text-align:left;padding:8px 12px;border-radius:6px}
 .rfm-cw-menu button:hover{background:#eef2f6}
@@ -488,7 +497,7 @@ export function frameHtml(): string {
   return `<style>${CW_CSS}</style>
 <button type="button" class="rfm-cw-tab" data-cw="close" title="Закрыть (Esc)">×</button>
 <div class="rfm-cw-head">
-  <button type="button" class="rfm-cw-ib" data-cw="list" title="Все чаты контакта">☰</button>
+  <button type="button" class="rfm-cw-ib rfm-cw-chan" data-cw="list" title="Мессенджер: переписки контакта и куда написать">☰</button>
   <div class="rfm-cw-title" data-cw-title><b>Переписка</b><small>Загрузка…</small></div>
   <button type="button" class="rfm-cw-ib" data-cw="search" title="Поиск по переписке">🔍</button>
   <button type="button" class="rfm-cw-ib" data-cw="contact" title="Добавить или привязать контакт" style="display:none">👤+</button>
@@ -575,6 +584,9 @@ export async function openChatWindow(chat: ChatApi, o: OpenOptions): Promise<() 
 
   const setTitle = (title: string, sub: string) => {
     q('[data-cw-title]').innerHTML = `<b>${esc(title)}</b><small>${sub}</small>`;
+    // В шапке — значок текущего мессенджера; по нему открывается выбор, куда писать (решение заказчика 27.11).
+    const chan = q<HTMLElement>('[data-cw="list"]');
+    if (chan) chan.innerHTML = current ? `${kindBadge(current.kind)} ▾` : '☰';
   };
   const toast = (text: string, kind: 'warn' | 'err' = 'warn') => {
     q('[data-cw-warn]').innerHTML = text ? `<div class="rfm-cw-warn"${kind === 'err' ? ' style="background:#fdecec;color:#a12b2b"' : ''}>${text}</div>` : '';
@@ -654,12 +666,13 @@ export async function openChatWindow(chat: ChatApi, o: OpenOptions): Promise<() 
     if (body.scrollTop < 40) void loadMore();
   });
 
-  const showCompose = () => {
+  const showCompose = (channelId?: number) => {
     if (!view) return;
     foot.style.display = 'none';
-    setTitle(view.contacts[0]?.name ?? 'Переписка', 'Чатов пока нет');
+    current = null;
+    setTitle(view.contacts[0]?.name ?? 'Переписка', channelId ? 'Новое сообщение' : 'Чатов пока нет');
     const sel: { channelId?: number; contactId?: number; phone?: string; chatId?: number } = {};
-    const first = view.startChannels.find((c) => c.connected);
+    const first = view.startChannels.find((c) => c.connected && (!channelId || c.id === channelId)) ?? view.startChannels.find((c) => c.connected);
     if (first) sel.channelId = first.id;
     const ph = view.contacts.find((c) => c.phones.length);
     if (ph) {
@@ -668,10 +681,21 @@ export async function openChatWindow(chat: ChatApi, o: OpenOptions): Promise<() 
     }
     const composeView: ComposeView = { channels: view.startChannels, contacts: view.contacts };
     let text = '';
+    // Номер ищется заранее, пока менеджер печатает (WhatsApp, Telegram личный): «Отправить» потом занимает 1–2 с.
+    const prepared = new Set<string>();
+    const prepare = () => {
+      const ch = view?.startChannels.find((c) => c.id === sel.channelId);
+      if (!ch || ch.byChat || !sel.phone || ch.kind === 'max_phone') return;
+      const key = `${ch.id}:${sel.phone}`;
+      if (prepared.has(key)) return;
+      prepared.add(key);
+      void chat.prepare(ch.id, sel.phone);
+    };
     const draw = (error?: string) => {
       body.innerHTML = `<div class="rfm-cw-compose">${renderComposer(composeView, sel, error)}</div>`;
       const t = body.querySelector<HTMLTextAreaElement>('textarea[name=text]');
       if (t) t.value = text;
+      prepare();
     };
     draw();
     body.oninput = (e) => {
@@ -704,16 +728,26 @@ export async function openChatWindow(chat: ChatApi, o: OpenOptions): Promise<() 
         if (!text.trim()) return draw('Введите текст первого сообщения');
         const contactId = sel.contactId ?? view?.contacts[0]?.id;
         if (!contactId) return draw('В карточке нет контакта — добавьте его');
+        btn.setAttribute('disabled', '');
         btn.textContent = 'Отправляем…';
-        void chat.startChat({ channelId: sel.channelId, contactId, ...(byChat ? { chatId: sel.chatId } : { phone: sel.phone }), text: text.trim() }).then(
-          async (r) => {
-            body.onclick = null;
-            body.oninput = null;
-            body.onchange = null;
-            await load(r.chatId);
-          },
-          (err: Error) => draw(err.message),
-        );
+        const started = Date.now();
+        const tick = setInterval(() => {
+          const sec = Math.round((Date.now() - started) / 1000);
+          if (sec >= 3) btn.textContent = `Отправляем… ${sec} с`;
+        }, 1000);
+        void chat
+          .startChat({ channelId: sel.channelId, contactId, ...(byChat ? { chatId: sel.chatId } : { phone: sel.phone }), text: text.trim() })
+          .finally(() => clearInterval(tick))
+          .then(
+            async (r) => {
+              body.onclick = null;
+              body.oninput = null;
+              body.onchange = null;
+              // Отправлено — сразу переписка с этим сообщением.
+              await load(r.chatId);
+            },
+            (err: Error) => draw(err.message),
+          );
       }
     };
   };
@@ -792,9 +826,21 @@ export async function openChatWindow(chat: ChatApi, o: OpenOptions): Promise<() 
     await subscribe();
   };
 
+  /** Выпадающий список в шапке: переписки контакта и мессенджеры, куда можно написать первым. */
   const showList = () => {
     if (!view) return;
-    overlay.innerHTML = `<div class="rfm-cw-drawer"><div class="rfm-cw-drawer-head"><button type="button" class="rfm-cw-ib" data-cw="back">←</button>Чаты контакта · ${view.chats.length}</div><div class="rfm-cw-list">${chatListHtml(view.chats, current?.id ?? null, { counters: Boolean(embed) })}</div><div style="padding:8px"><button type="button" class="rfm-cw-btn" data-cw="compose">Написать в другой мессенджер</button></div></div>`;
+    if (pop.innerHTML) return closePop();
+    const chats = view.chats
+      .map(
+        (c) => `<button type="button" class="rfm-cw-item${c.id === current?.id ? ' rfm-cw-item-on' : ''}" data-cw="open" data-id="${c.id}">${kindBadge(c.kind)}<span class="rfm-cw-item-main"><b>${esc(c.kindText)}</b><small>${esc(c.contact.phone ?? (c.contact.username ? `@${c.contact.username}` : c.channelTitle))}</small></span>${embed && c.unread ? `<i class="rfm-cw-unread">${c.unread}</i>` : ''}</button>`,
+      )
+      .join('');
+    const used = new Set(view.chats.map((c) => c.channelId));
+    const fresh = view.startChannels
+      .filter((c) => c.connected && !used.has(c.id))
+      .map((c) => `<button type="button" class="rfm-cw-item" data-cw="compose" data-id="${c.id}">${kindBadge(c.kind)}<span class="rfm-cw-item-main"><b>Написать в ${esc(c.kindText)}</b><small>${esc(c.title)}</small></span></button>`)
+      .join('');
+    pop.innerHTML = `<div class="rfm-cw-menu rfm-cw-menu-left">${chats ? `<div class="rfm-cw-pop-head">Переписки</div>${chats}` : ''}${fresh ? `<div class="rfm-cw-pop-head">Новое сообщение</div>${fresh}` : ''}${!chats && !fresh ? '<div class="rfm-cw-empty">Нет подключённых мессенджеров</div>' : ''}</div>`;
   };
 
   const showDeals = async () => {
@@ -963,13 +1009,16 @@ ${current?.contact.phone ? '<button type="button" data-cw="copy">Скопиро�
         overlay.innerHTML = '';
         return;
       case 'open': {
+        closePop();
+        overlay.innerHTML = '';
         const c = view?.chats.find((x) => x.id === id);
         if (c) void openChat(c);
         return;
       }
       case 'compose':
         overlay.innerHTML = '';
-        return showCompose();
+        closePop();
+        return showCompose(id || undefined);
       case 'deals':
         return void showDeals();
       case 'contact':

@@ -74,6 +74,13 @@ export function kindOfMime(mime: string, name = ''): Exclude<AmojoMessageKind, '
 /** Ошибка «Написать первым», которую показываем менеджеру как есть. */
 export class StartChatError extends Error {}
 
+/** Предварительный поиск номера при открытии окна «Написать» (WhatsApp, Telegram личный): чат готов до нажатия «Отправить». */
+export interface PrepareChatInput {
+  accountId: number;
+  channelId: number;
+  phone: string;
+}
+
 export interface StartChatInput {
   accountId: number;
   /** Сотрудник amoCRM, нажавший «Написать первым» (из токена виджета). */
@@ -675,7 +682,36 @@ export class Bridge {
    * привязка к контакту → первое сообщение клиенту → то же сообщение в amo как исходящее от сотрудника.
    * Выполняется в процессе коннекторов (нужен запущенный коннектор канала).
    */
-  async startChat(input: StartChatInput): Promise<{ chatId: number; messageId: number }> {
+  /**
+   * Найти номер в мессенджере заранее и завести чат у нас (без amo и без сообщения). Ошибки не наружу: это ускорение,
+   * «Отправить» всё равно сделает поиск сам, если чата нет. MAX по номеру не готовим: у GREEN-API лимит проверок.
+   */
+  async prepareChat(input: PrepareChatInput): Promise<'ready' | 'exists' | 'not_found' | 'skipped'> {
+    const channel = await this.d.store.channelOfAccount(input.accountId, input.channelId);
+    const connector = channel ? this.d.connector(channel.id) : undefined;
+    if (!channel || !connector?.resolvePhone || channel.status !== 'connected' || channel.kind === 'max_phone') return 'skipped';
+    const phone = normalizePhone(input.phone);
+    if (!phone) return 'skipped';
+    if (await this.d.store.chatByPhone(channel.id, phone)) return 'exists';
+    const kindText = KIND_TEXT[channel.kind] ?? channel.kind;
+    try {
+      const peer = await withTimeout(connector.resolvePhone(phone), this.d.lookupTimeoutMs ?? 15_000, `${kindText}: поиск номера`);
+      if (!peer) return 'not_found';
+      await this.d.store.upsertChat(channel, { externalChatId: peer.externalChatId, isGroup: false, title: peer.title ?? `+${phone.slice(1)}`, contact: { phone } });
+      this.d.log.info({ channelId: channel.id, phone: phoneTail4(phone) }, 'номер найден заранее, чат подготовлен');
+      return 'ready';
+    } catch (err) {
+      this.d.log.warn({ channelId: channel.id, phone: phoneTail4(phone), err: (err as Error).message }, 'предварительный поиск номера не удался');
+      return 'skipped';
+    }
+  }
+
+  /**
+   * Порядок (разбор 27.11): клиенту сообщение уходит сразу после поиска номера; чат в amoCRM, привязка к контакту
+   * и передача в ленту — после, в фоне. hooks.onSent вызывается, как только клиент получил сообщение: талон виджета
+   * закрывается в этот момент, а не после всех обращений к amoCRM.
+   */
+  async startChat(input: StartChatInput, hooks: { onSent?: (r: { chatId: number; messageId: number }) => Promise<void> | void } = {}): Promise<{ chatId: number; messageId: number }> {
     const text = input.text.trim();
     if (!text) throw new StartChatError('Введите текст первого сообщения');
     const channel = await this.d.store.channelOfAccount(input.accountId, input.channelId);
@@ -704,33 +740,37 @@ export class Bridge {
         // Каждый внешний шаг — с пределом времени (разбор 27.11): зависший MTProto/прокси раньше держал «Отправляем…» бесконечно.
         const peer = await withTimeout(connector.resolvePhone(phone), this.d.lookupTimeoutMs ?? 15_000, `${kindText}: поиск номера`);
         if (!peer) throw new StartChatError(`Номер ${phoneTail4(phone) ? `…${phoneTail4(phone)}` : ''} не найден в ${kindText} или скрыт настройками приватности`);
-        const contact = await withTimeout(this.d.rest.contact(input.accountId, input.contactId), 10_000, 'amoCRM: контакт');
-        chat = await this.d.store.upsertChat(channel, { externalChatId: peer.externalChatId, isGroup: false, title: peer.title ?? contact.name, contact: { phone } });
+        // Имя контакта из amo — не обязательно для отправки: не ждём дольше 3 с, иначе заголовок по номеру.
+        const contactName = await withTimeout(this.d.rest.contact(input.accountId, input.contactId), 3_000, 'amoCRM: контакт').then((c) => c.name, () => null);
+        chat = await this.d.store.upsertChat(channel, { externalChatId: peer.externalChatId, isGroup: false, title: peer.title ?? contactName ?? `+${phone.slice(1)}`, contact: { phone } });
       }
     }
 
-    const { chatId: amojoChatId } = await withTimeout(this.d.amojo.createChat(conn.scopeId, chat.conversationId, this.clientUser(chat)), 10_000, 'amoCRM: создание чата');
-    await this.d.store.setAmojoChatId(chat.id, amojoChatId);
-    await withTimeout(this.d.rest.linkChat(input.accountId, amojoChatId, input.contactId), 10_000, 'amoCRM: привязка чата к контакту');
-    await withTimeout(this.markMaxContact(chat, input.contactId), 10_000, 'amoCRM: пометка контакта').catch((err: Error) => this.d.log.warn({ chatId: chat.id, err: err.message }, 'пометка контакта не выполнена'));
-    const ref = await withTimeout(this.d.rest.userAmojoId(input.accountId, input.userId), 5_000, 'amoCRM: сотрудник').catch(() => null);
-    if (ref) await this.d.store.rememberAmoOperator(input.accountId, chat.id, ref);
-
+    // 1. Клиенту — сразу.
     const sent = await withTimeout(
       connector.send({ externalChatId: chat.externalChatId, text, file: null, replyToExternalId: null }),
       this.d.sendTimeoutMs ?? SEND_TIMEOUT_MS,
       `${kindText} не ответил`,
     );
-    const msg = await this.d.store.insertFromChannel({
-      chat,
-      source: 'phone',
-      kind: 'text',
-      text,
-      author: null,
-      externalId: sent.externalMessageId,
-      replyToExternalId: null,
-    });
+    const msg = await this.d.store.insertFromChannel({ chat, source: 'phone', kind: 'text', text, author: null, externalId: sent.externalMessageId, replyToExternalId: null, senderUserId: input.userId });
     if (!msg) throw new Error('Сообщение уже было сохранено');
+    await hooks.onSent?.({ chatId: chat.id, messageId: msg.id });
+    this.d.log.info({ chatId: chat.id, messageId: msg.id, channelId: channel.id, kind: channel.kind }, 'написать первым: клиенту отправлено');
+
+    // 2. amoCRM — после: чат, привязка к контакту, сотрудник, лента. Сбой здесь клиенту не мешает, в ленту догонит очередь.
+    try {
+      if (!chat.amojoChatId) {
+        const { chatId: amojoChatId } = await withTimeout(this.d.amojo.createChat(conn.scopeId, chat.conversationId, this.clientUser(chat)), 10_000, 'amoCRM: создание чата');
+        await this.d.store.setAmojoChatId(chat.id, amojoChatId);
+        chat.amojoChatId = amojoChatId;
+      }
+      await withTimeout(this.d.rest.linkChat(input.accountId, chat.amojoChatId, input.contactId), 10_000, 'amoCRM: привязка чата к контакту');
+      await withTimeout(this.markMaxContact(chat, input.contactId), 10_000, 'amoCRM: пометка контакта').catch((err: Error) => this.d.log.warn({ chatId: chat.id, err: err.message }, 'пометка контакта не выполнена'));
+    } catch (err) {
+      this.d.log.warn({ chatId: chat.id, contactId: input.contactId, err: (err as Error).message }, 'написать первым: чат в amoCRM не привязан к контакту сразу — привязка по номеру при передаче в ленту');
+    }
+    const ref = await withTimeout(this.d.rest.userAmojoId(input.accountId, input.userId), 5_000, 'amoCRM: сотрудник').catch(() => null);
+    if (ref) await this.d.store.rememberAmoOperator(input.accountId, chat.id, ref);
     try {
       await this.deliverToAmo(msg.id);
     } catch (err) {

@@ -47,6 +47,8 @@ export interface ApiDeps {
   startChat?: (input: StartChatInput) => Promise<{ ticket: string }>;
   /** Состояние очередей для /health и уведомлений. */
   queueSnapshot?: () => Promise<QueueSnapshot[]>;
+  /** Предварительный поиск номера при открытии «Написать» (задача в очередь канала). */
+  prepareChat?: (input: { accountId: number; channelId: number; phone: string }) => Promise<void>;
   /** Вебхуки мессенджеров (Авито): очередь в процесс коннекторов. */
   webhooks?: { add(channelId: number, body: unknown): Promise<void> };
   /** Окно переписки: постановка отправки в очередь (сразу, без ожидания), очередь задач (история), события (SSE). */
@@ -512,6 +514,17 @@ export async function buildApp(deps: ApiDeps, opts: FastifyServerOptions = {}) {
           await new Promise((r) => setTimeout(r, 250));
         }
         return { ticket };
+      });
+
+      /** Окно «Написать» открыто: ищем номер в мессенджере заранее, чтобы «Отправить» занял 1–2 с. Ответ сразу. */
+      w.post('/chats/prepare', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
+        const { accountId } = who(req);
+        const body = z.object({ channelId: z.number().int().positive(), phone: z.string().trim().min(5).max(32) }).safeParse(req.body);
+        if (!body.success) return reply.code(400).send({ error: 'Некорректные данные' });
+        const channel = await store.channelOfAccount(accountId, body.data.channelId);
+        if (!channel || channel.status !== 'connected' || !PHONE_START_KINDS.has(channel.kind) || channel.kind === 'max_phone' || !deps.prepareChat) return { queued: false };
+        await deps.prepareChat({ accountId, channelId: channel.id, phone: body.data.phone });
+        return { queued: true };
       });
 
       /** Результат «Написать первым» по талону: pending → done {chatId, messageId} | error {error}. */

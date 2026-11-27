@@ -146,6 +146,14 @@ export class BullJobQueue implements JobQueue {
     return String(job.id);
   }
 
+  /** Предварительный поиск номера: одна задача на канал и номер, без повторов, устаревает через минуту. */
+  async addPrepare(input: { accountId: number; channelId: number; phone: string }): Promise<void> {
+    const digits = input.phone.replace(/\D/g, '');
+    await this.queue(channelQueueName(input.channelId))
+      .add('prepare-chat', input, { jobId: `prepare-${input.channelId}-${digits}-${Math.floor(Date.now() / 60_000)}`, attempts: 1, removeOnComplete: { age: 600 }, removeOnFail: { age: 600 } })
+      .catch(() => undefined);
+  }
+
   async snapshot(names: readonly string[]): Promise<QueueSnapshot[]> {
     const out: QueueSnapshot[] = [];
     for (const name of names) {

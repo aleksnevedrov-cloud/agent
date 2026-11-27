@@ -197,6 +197,10 @@ export class MessengerApi {
     // v=2: сервер отвечает талоном сразу, результат — awaitStart (старый виджет без v=2 ждёт результат в запросе).
     return this.call<{ ticket: string }>('POST', '/widget/v1/chats/start?v=2', body);
   }
+  /** Окно «Написать» открыто: номер ищется заранее (WhatsApp, Telegram личный), ошибки не показываем. */
+  prepare(channelId: number, phone: string) {
+    return this.call<{ queued: boolean }>('POST', '/widget/v1/chats/prepare', { channelId, phone }).catch(() => ({ queued: false }));
+  }
   startStatus(ticket: string) {
     return this.call<{ status: 'pending' } | { status: 'done'; chatId: number; messageId: number } | { status: 'error'; error: string }>('GET', `/widget/v1/chats/start/${encodeURIComponent(ticket)}`);
   }
@@ -718,7 +722,8 @@ export function cardContext(self: AmoWidgetSelf, w: Window = window): { leadId?:
 }
 
 export function renderCardPanel(): string {
-  return `<div class="rfm-card-panel"><style>${CARD_CSS}</style><button type="button" class="rfm-first rfm-first-primary" data-rfm="chat">${ICON.chat}Открыть переписку</button><button type="button" class="rfm-first" style="margin-top:6px" data-rfm="first">${ICON.send}Написать</button></div>`;
+  // Одна кнопка (решение заказчика 27.11): открывает переписку, если она есть, иначе — окно нового сообщения.
+  return `<div class="rfm-card-panel"><style>${CARD_CSS}</style><button type="button" class="rfm-first rfm-first-primary" data-rfm="chat">${ICON.send}Написать</button></div>`;
 }
 
 /**
@@ -756,7 +761,7 @@ ${target}
 }
 
 /** Открывает окно поверх amoCRM и отправляет первое сообщение. */
-export async function openComposer(api: MessengerApi, ctx: { leadId?: number; contactId?: number }, doc: Document = document): Promise<void> {
+export async function openComposer(api: MessengerApi, ctx: { leadId?: number; contactId?: number }, doc: Document = document, onDone?: (r: { chatId: number; messageId: number }) => void): Promise<void> {
   const overlay = doc.createElement('div');
   overlay.className = 'rfm-overlay';
   overlay.innerHTML = `<style>${CSS}${CARD_CSS}</style><div class="rfm-modal"><div class="rfm-note">Загрузка…</div></div>`;
@@ -780,6 +785,17 @@ export async function openComposer(api: MessengerApi, ctx: { leadId?: number; co
     overlay.innerHTML = `<style>${CSS}${CARD_CSS}</style>${renderComposer(view, sel, error)}`;
     const ta = overlay.querySelector<HTMLTextAreaElement>('textarea[name=text]');
     if (ta) ta.value = text;
+    prepare();
+  };
+  // Номер ищется в мессенджере, пока менеджер печатает: «Отправить» потом занимает 1–2 с. Один раз на канал и номер.
+  const prepared = new Set<string>();
+  const prepare = () => {
+    const ch = view.channels.find((c) => c.id === sel.channelId);
+    if (!ch || ch.byChat || !sel.phone || ch.kind === 'max_phone') return;
+    const key = `${ch.id}:${sel.phone}`;
+    if (prepared.has(key)) return;
+    prepared.add(key);
+    void api.prepare(ch.id, sel.phone);
   };
   draw();
   overlay.addEventListener('input', (e) => {
@@ -815,18 +831,30 @@ export async function openComposer(api: MessengerApi, ctx: { leadId?: number; co
       const contactId = sel.contactId ?? view.contacts[0]?.id;
       if (!contactId) return draw('В карточке нет контакта — добавьте его');
       busy = true;
+      btn.setAttribute('disabled', '');
+      const started = Date.now();
       btn.textContent = 'Отправляем…';
-      // Дольше 8 с — объясняем, чего ждём (обычно 1–3 с): поиск номера у мессенджера или ответ amoCRM.
-      const slow = setTimeout(() => {
-        if (busy) draw('Ждём ответ мессенджера: поиск номера и отправка занимают до 20 с. Если не дождётесь — причина появится здесь.');
-      }, 8000);
+      // Счётчик секунд на кнопке вместо предупреждений: как в мессенджере, просто видно, что идёт отправка.
+      const tick = setInterval(() => {
+        const sec = Math.round((Date.now() - started) / 1000);
+        if (sec >= 3) btn.textContent = `Отправляем… ${sec} с`;
+      }, 1000);
       void api
         .startChat({ channelId: sel.channelId, contactId, ...(byChat ? { chatId: sel.chatId } : { phone: sel.phone }), text: text.trim() })
         .then((r) => api.awaitStart(r.ticket))
-        .finally(() => clearTimeout(slow))
+        .finally(() => clearInterval(tick))
         .then(
-        () => {
-          overlay.innerHTML = `<style>${CSS}${CARD_CSS}</style><div class="rfm-modal"><h3>Сообщение отправлено</h3><div>Переписка появится в чате сделки. Если её не видно — обновите страницу.</div><div class="rfm-actions"><button type="button" class="rfm-btn rfm-btn-primary" data-rfm="cancel">Готово</button></div></div>`;
+        (r) => {
+          // Отправлено — сразу в переписку, без лишнего окна.
+          close();
+          if (onDone) onDone(r);
+          else {
+            const done = doc.createElement('div');
+            done.className = 'rfm-overlay';
+            done.innerHTML = `<style>${CSS}${CARD_CSS}</style><div class="rfm-modal"><h3>Отправлено</h3><div>Переписка — в чате сделки.</div><div class="rfm-actions"><button type="button" class="rfm-btn rfm-btn-primary" data-rfm="cancel">Готово</button></div></div>`;
+            done.addEventListener('click', (e) => void ((e.target === done || (e.target as HTMLElement).closest('[data-rfm="cancel"]')) && done.remove()));
+            doc.body.appendChild(done);
+          }
         },
         (err: Error) => {
           busy = false;
@@ -1026,12 +1054,12 @@ export function createCallbacks(self: AmoWidgetSelf, apiUrl: string = __API_URL_
       if (!(document.body as HTMLElement & { __rfmFirst?: boolean }).__rfmFirst) {
         (document.body as HTMLElement & { __rfmFirst?: boolean }).__rfmFirst = true;
         document.body.addEventListener('click', (e) => {
-          const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-rfm="first"],[data-rfm="chat"]');
+          const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-rfm="chat"]');
           if (!btn) return;
           const c = cardContext(self);
           if (!c) return;
-          if (btn.dataset.rfm === 'chat') void openChatWindow(chat, { ctx: c }).then((close) => (closeCardChat = close));
-          else void openComposer(api, c);
+          // Окно переписки само показывает экран «Написать», если чатов с контактом ещё нет.
+          void openChatWindow(chat, { ctx: c }).then((close) => (closeCardChat = close));
         });
         bindTemplates();
       }

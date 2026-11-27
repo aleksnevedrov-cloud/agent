@@ -143,8 +143,27 @@ describe('написать первым', () => {
     const start = calls.find((c) => c.method === 'POST' && c.url.includes('/chats/start?v=2'))!;
     expect(JSON.parse(start.data!)).toEqual({ channelId: 3, contactId: 1, phone: '+7 936 147-23-24', text: 'Добрый день' });
     expect(polls).toBe(2);
-    expect(overlay.textContent).toContain('Сообщение отправлено');
-    overlay.remove();
+    // Как мессенджер: номер искали заранее при открытии (один раз), после отправки окно закрылось, вызван onDone.
+    expect(calls.filter((c) => c.url.endsWith('/widget/v1/chats/prepare')).map((c) => JSON.parse(c.data!))).toEqual([{ channelId: 3, phone: '+7 936 147-23-24' }]);
+    expect(document.querySelector('.rfm-overlay')).not.toBeNull(); // без onDone — короткое «Отправлено»
+    expect(document.querySelector('.rfm-overlay')!.textContent).toContain('Отправлено');
+    document.querySelector('.rfm-overlay')!.remove();
+  });
+
+  it('после отправки с onDone сразу открывается переписка, модалки нет', async () => {
+    const calls: { url: string; method?: string; data?: string }[] = [];
+    const api = new MessengerApi(fakeSelf({ 'GET /widget/v1/compose': view, 'POST /widget/v1/chats/start': { ticket: 'job-3' }, 'GET /widget/v1/chats/start/job-3': { status: 'done', chatId: 11, messageId: 2 }, 'POST /widget/v1/chats/prepare': { queued: true } }, calls), 'https://chat.example.ru');
+    const done: unknown[] = [];
+    await openComposer(api, { leadId: 90535 }, document, (r) => void done.push(r));
+    const overlay = document.querySelector<HTMLElement>('.rfm-overlay')!;
+    const ta = overlay.querySelector<HTMLTextAreaElement>('textarea')!;
+    ta.value = 'Добрый день';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    overlay.querySelector<HTMLElement>('[data-rfm="send"]')!.click();
+    expect(overlay.querySelector<HTMLButtonElement>('[data-rfm="send"]')!.disabled).toBe(true);
+    for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(done).toEqual([{ chatId: 11, messageId: 2 }]);
+    expect(document.querySelector('.rfm-overlay')).toBeNull();
   });
 
   it('ошибка «Написать» приходит по талону и показывается менеджеру; тексты ошибок HTTP понятные (п. 4.4)', async () => {
@@ -176,7 +195,10 @@ describe('написать первым', () => {
 it('кнопка в карточке подписана «Написать», шапка — «Rf Messenger»', async () => {
   const { renderCardPanel } = await import('../src/index.ts');
   const html = renderCardPanel();
-  expect(html).toMatch(/data-rfm="first">.*Написать<\/button>/);
+  // Одна кнопка «Написать»: открывает переписку, если она есть, иначе экран нового сообщения (решение 27.11).
+  expect(html).toMatch(/data-rfm="chat">.*Написать<\/button>/);
+  expect(html).not.toContain('data-rfm="first"');
+  expect(html).not.toContain('Открыть переписку');
   expect(html).not.toContain('Написать первым');
   expect(html).toContain("content:'Rf Messenger'");
 });
@@ -256,8 +278,10 @@ describe('этап 4: MAX, VK, Авито', () => {
     for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
     const start = calls.find((c) => c.method === 'POST' && c.url.includes('/chats/start?v=2'))!;
     expect(JSON.parse(start.data!)).toEqual({ channelId: 5, contactId: 1, chatId: 11, text: 'Добрый день' });
-    expect(overlay.textContent).toContain('Сообщение отправлено');
-    overlay.remove();
+    // Окно «Написать» закрылось, осталось короткое «Отправлено».
+    expect(document.body.contains(overlay)).toBe(false);
+    expect(document.querySelector('.rfm-overlay')!.textContent).toContain('Отправлено');
+    document.querySelector('.rfm-overlay')!.remove();
   });
 });
 

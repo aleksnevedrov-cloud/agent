@@ -1,6 +1,6 @@
 import { Worker, type Job } from 'bullmq';
 import type { Redis } from 'ioredis';
-import type { Bridge, Logger, StartChatInput } from './bridge.ts';
+import type { Bridge, Logger, PrepareChatInput, StartChatInput } from './bridge.ts';
 import { CHANNEL_CONCURRENCY, channelQueueName, START_JOB_TIMEOUT_MS, START_TICKET_TTL_SEC, startTicketKey, type JobData, type StartTicket } from './queue.ts';
 
 function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
@@ -61,6 +61,7 @@ export class ChannelWorkers {
   private async handle(job: Job): Promise<unknown> {
     if (this.o.process) return this.o.process(job);
     if (job.name === 'start-chat') return this.startChat(job as Job<StartChatInput>);
+    if (job.name === 'prepare-chat') return this.o.bridge.prepareChat(job.data as PrepareChatInput);
     const data = job.data as JobData;
     const last = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
     return this.o.bridge.deliverToChannel(data.messageId, last, data.deadline ?? null);
@@ -71,14 +72,30 @@ export class ChannelWorkers {
     const key = startTicketKey(String(job.id));
     const accountId = job.data.accountId;
     let result: StartTicket;
+    let sentAlready = false;
+    const write = (r: StartTicket) => this.o.redis.set(key, JSON.stringify({ ...r, accountId }), 'EX', START_TICKET_TTL_SEC);
     try {
       // Общий предел на всю задачу: даже если какой-то шаг завис в обход своих таймаутов, талон получит ошибку.
-      result = { status: 'done', ...(await withTimeout(this.o.bridge.startChat(job.data), this.o.startTimeoutMs ?? START_JOB_TIMEOUT_MS, 'Отправка')) };
+      // Талон закрывается сразу, как клиент получил сообщение (onSent); amoCRM догоняет в фоне.
+      result = {
+        status: 'done',
+        ...(await withTimeout(
+          this.o.bridge.startChat(job.data, {
+            onSent: async (r) => {
+              sentAlready = true;
+              await write({ status: 'done', ...r });
+            },
+          }),
+          this.o.startTimeoutMs ?? START_JOB_TIMEOUT_MS,
+          'Отправка',
+        )),
+      };
     } catch (err) {
+      this.o.log.warn({ channelId: job.data.channelId, err: (err as Error).message, afterSend: sentAlready }, 'написать первым: ошибка');
+      if (sentAlready) return; // клиенту ушло — талон уже «done», amo догонит очередью
       result = { status: 'error', error: (err as Error).message || 'Не удалось отправить' };
-      this.o.log.warn({ channelId: job.data.channelId, err: (err as Error).message }, 'написать первым: ошибка');
     }
-    await this.o.redis.set(key, JSON.stringify({ ...result, accountId }), 'EX', START_TICKET_TTL_SEC);
+    await write(result);
   }
 
   async close(): Promise<void> {
